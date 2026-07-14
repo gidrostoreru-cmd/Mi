@@ -1,0 +1,322 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Прораб: испытание стройкой — платформер</title>
+
+<style>
+  :root{ --ui:#f2c113; --ui-ink:#2a2410; }
+  *{box-sizing:border-box}
+  html,body{margin:0; height:100%; background:#15171c; color:#ecebe6;
+    font:400 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    overscroll-behavior:none;}
+  .stage{max-width:1000px; margin:0 auto; padding:10px 10px 4px;}
+  canvas{display:block; width:100%; height:auto; background:#87b7d9; border-radius:8px;
+    touch-action:none; image-rendering:pixelated;}
+  .bar{display:flex; justify-content:space-between; align-items:center; max-width:1000px;
+    margin:0 auto; padding:8px 12px; font-size:14px; color:#a5a7ab;}
+  .bar a{color:var(--ui)}
+  .pads{display:flex; justify-content:space-between; align-items:center; gap:12px;
+    max-width:1000px; margin:0 auto; padding:6px 14px 16px; user-select:none; -webkit-user-select:none;}
+  .pad{display:flex; gap:12px}
+  .pbtn{width:74px; height:74px; border-radius:50%; border:none; cursor:pointer;
+    background:#26282e; color:#ecebe6; font-size:30px; font-weight:800;
+    box-shadow:0 4px 0 #0c0d10; touch-action:none;}
+  .pbtn:active{transform:translateY(3px); box-shadow:0 1px 0 #0c0d10}
+  .pbtn.jump{background:var(--ui); color:var(--ui-ink); width:92px; height:92px}
+  @media(min-width:900px){ .pads{display:none} }
+  .hint{text-align:center; font-size:13px; color:#a5a7ab; padding:0 14px 14px; margin:0}
+</style>
+
+<div class="bar">
+  <b style="color:#ecebe6">🏗️ ПРОРАБ: испытание стройкой</b>
+  <span>🔩 собери болты · 🪣 не трогай вёдра</span>
+</div>
+
+<div class="stage"><canvas id="cv" width="960" height="540"></canvas></div>
+
+<div class="pads">
+  <div class="pad">
+    <button class="pbtn" id="btnL" aria-label="Влево">◀</button>
+    <button class="pbtn" id="btnR" aria-label="Вправо">▶</button>
+  </div>
+  <div class="pad">
+    <button class="pbtn jump" id="btnJ" aria-label="Прыжок">⤒</button>
+  </div>
+</div>
+<p class="hint">Телефон: кнопки под игрой (лучше повернуть горизонтально). Компьютер: стрелки / A D + пробел.</p>
+
+<script>
+'use strict';
+const cv = document.getElementById('cv'), cx = cv.getContext('2d');
+const W = cv.width, H = cv.height, T = 36; // размер тайла
+
+/* ---------- уровень ---------- */
+const COLS = 140, ROWS = 15;
+const solid = new Uint8Array(COLS * ROWS);       // 1 = блок
+const isSolid = (c, r) => (c < 0 || c >= COLS) ? 1 : (r < 0 || r >= ROWS) ? 0 : solid[r * COLS + c];
+
+function ground(c0, c1){ for(let c = c0; c <= c1; c++){ solid[13 * COLS + c] = 1; solid[14 * COLS + c] = 1; } }
+function plank(c0, r, len){ for(let c = c0; c < c0 + len; c++) solid[r * COLS + c] = 1; }
+
+ground(0, 19); ground(23, 39); ground(43, 69); ground(74, 99); ground(103, 139);
+const planks = [ [10,9,4],[26,10,3],[31,8,3],[45,10,5],[52,7,4],[60,10,3],
+                 [76,10,4],[82,8,4],[88,10,3],[106,10,4],[112,8,5] ];
+planks.forEach(p => plank(p[0], p[1], p[2]));
+
+let coins = [];                                   // {c, r, taken}
+function coinRow(c0, r, n){ for(let i = 0; i < n; i++) coins.push({c: c0 + i, r, taken: false}); }
+coinRow(10, 8, 4); coinRow(20, 10, 3); coinRow(26, 9, 3); coinRow(31, 7, 3);
+coinRow(40, 10, 3); coinRow(45, 9, 5); coinRow(52, 6, 4); coinRow(60, 9, 3);
+coinRow(70, 10, 4); coinRow(76, 9, 4); coinRow(82, 7, 4); coinRow(88, 9, 3);
+coinRow(100, 10, 3); coinRow(106, 9, 4); coinRow(112, 7, 5); coinRow(124, 12, 5);
+const COINS_TOTAL = coins.length;
+
+const ENEMY_SPAWNS = [15, 33, 48, 62, 80, 92, 108, 120];
+const FLAG_X = 134 * T, LEVEL_W = COLS * T;
+
+/* ---------- состояние ---------- */
+const player = {x:0, y:0, w:26, h:34, vx:0, vy:0, onGround:false, face:1};
+let enemies = [], cam = 0, score = 0, lives = 3;
+let state = 'title';                              // title | play | dead | over | win
+let stateTimer = 0, tick = 0;
+
+function spawnPlayer(){ player.x = 2 * T; player.y = 12 * T - player.h; player.vx = 0; player.vy = 0; }
+function resetEnemies(){
+  enemies = ENEMY_SPAWNS.map(c => ({x: c * T + 3, y: 13 * T - 30, w: 30, h: 30, vx: -1, dead: false}));
+}
+function newGame(){
+  score = 0; lives = 3; coins.forEach(c => c.taken = false);
+  resetEnemies(); spawnPlayer(); cam = 0; state = 'play';
+}
+
+/* ---------- ввод ---------- */
+const input = {l: false, r: false, j: false};
+let jumpHeld = false;
+addEventListener('keydown', e => {
+  if(['ArrowLeft','ArrowRight','ArrowUp','Space'].includes(e.code)) e.preventDefault();
+  if(e.code === 'ArrowLeft'  || e.code === 'KeyA') input.l = true;
+  if(e.code === 'ArrowRight' || e.code === 'KeyD') input.r = true;
+  if(e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') input.j = true;
+  anyPress();
+});
+addEventListener('keyup', e => {
+  if(e.code === 'ArrowLeft'  || e.code === 'KeyA') input.l = false;
+  if(e.code === 'ArrowRight' || e.code === 'KeyD') input.r = false;
+  if(e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') input.j = false;
+});
+function bindBtn(id, key){
+  const el = document.getElementById(id);
+  const on  = e => { e.preventDefault(); input[key] = true; anyPress(); };
+  const off = e => { e.preventDefault(); input[key] = false; };
+  el.addEventListener('pointerdown', on);
+  el.addEventListener('pointerup', off);
+  el.addEventListener('pointercancel', off);
+  el.addEventListener('pointerleave', off);
+}
+bindBtn('btnL', 'l'); bindBtn('btnR', 'r'); bindBtn('btnJ', 'j');
+cv.addEventListener('pointerdown', () => anyPress());
+
+function anyPress(){
+  initAudio();
+  if(state === 'title' || state === 'over' || state === 'win'){
+    if(stateTimer <= 0) newGame();
+  }
+}
+
+/* ---------- звук ---------- */
+let AC = null;
+function initAudio(){ if(!AC){ try{ AC = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){} } }
+function beep(freq, dur, type, vol){
+  if(!AC) return;
+  try{
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type || 'square'; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol || .08, AC.currentTime);
+    g.gain.exponentialRampToValueAtTime(.0001, AC.currentTime + dur);
+    o.connect(g); g.connect(AC.destination); o.start(); o.stop(AC.currentTime + dur);
+  }catch(e){}
+}
+const sJump = () => beep(320, .15, 'square');
+const sCoin = () => { beep(950, .07, 'square'); setTimeout(() => beep(1270, .12, 'square'), 60); };
+const sStomp = () => beep(140, .18, 'triangle', .12);
+const sHurt = () => beep(90, .4, 'sawtooth', .1);
+const sWin  = () => [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => beep(f, .18, 'square'), i * 130));
+
+/* ---------- физика ---------- */
+const GRAV = .5, MOVE = 4, JUMP = -11;
+
+function collideRect(o){
+  o.onGround = false;
+  // по X
+  o.x += o.vx;
+  let c0 = Math.floor(o.x / T), c1 = Math.floor((o.x + o.w - 1) / T);
+  let r0 = Math.floor(o.y / T), r1 = Math.floor((o.y + o.h - 1) / T);
+  for(let r = r0; r <= r1; r++){
+    if(o.vx > 0 && isSolid(c1, r)){ o.x = c1 * T - o.w; o.vx = 0; }
+    if(o.vx < 0 && isSolid(c0, r)){ o.x = (c0 + 1) * T; o.vx = 0; }
+    c0 = Math.floor(o.x / T); c1 = Math.floor((o.x + o.w - 1) / T);
+  }
+  // по Y
+  o.vy = Math.min(o.vy + GRAV, 14);
+  o.y += o.vy;
+  c0 = Math.floor(o.x / T); c1 = Math.floor((o.x + o.w - 1) / T);
+  r0 = Math.floor(o.y / T); r1 = Math.floor((o.y + o.h - 1) / T);
+  for(let c = c0; c <= c1; c++){
+    if(o.vy > 0 && isSolid(c, r1)){ o.y = r1 * T - o.h; o.vy = 0; o.onGround = true; }
+    if(o.vy < 0 && isSolid(c, r0)){ o.y = (r0 + 1) * T; o.vy = 0; }
+    r0 = Math.floor(o.y / T); r1 = Math.floor((o.y + o.h - 1) / T);
+  }
+}
+const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+function hurt(){
+  sHurt(); lives--;
+  if(lives <= 0){ state = 'over'; stateTimer = 60; }
+  else { state = 'dead'; stateTimer = 50; }
+}
+
+function update(){
+  tick++;
+  if(state === 'dead'){ if(--stateTimer <= 0){ spawnPlayer(); resetEnemies(); state = 'play'; } return; }
+  if(state !== 'play'){ if(stateTimer > 0) stateTimer--; return; }
+
+  // игрок
+  player.vx = (input.r - input.l) * MOVE;
+  if(player.vx) player.face = Math.sign(player.vx);
+  if(input.j && !jumpHeld && player.onGround){ player.vy = JUMP; sJump(); }
+  jumpHeld = input.j;
+  if(!input.j && player.vy < -4) player.vy = -4;       // короткий прыжок
+  collideRect(player);
+  player.x = Math.max(0, Math.min(player.x, LEVEL_W - player.w));
+  if(player.y > H + 60){ hurt(); return; }
+
+  // монетки-болты
+  for(const c of coins){
+    if(c.taken) continue;
+    const box = {x: c.c * T + 8, y: c.r * T + 8, w: T - 16, h: T - 16};
+    if(overlap(player, box)){ c.taken = true; score++; sCoin(); }
+  }
+
+  // враги
+  for(const e of enemies){
+    if(e.dead) continue;
+    const nc = Math.floor((e.x + (e.vx < 0 ? -2 : e.w + 2)) / T);
+    const rFeet = Math.floor((e.y + e.h + 2) / T), rBody = Math.floor((e.y + e.h / 2) / T);
+    if(isSolid(nc, rBody) || !isSolid(nc, rFeet)) e.vx *= -1;   // стена или край — разворот
+    e.x += e.vx;
+    if(overlap(player, e)){
+      if(player.vy > 0 && player.y + player.h - e.y < 18){
+        e.dead = true; player.vy = -7; score += 2; sStomp();
+      } else { hurt(); return; }
+    }
+  }
+
+  // финиш
+  if(player.x + player.w > FLAG_X){ state = 'win'; stateTimer = 90; sWin(); }
+
+  cam = Math.max(0, Math.min(player.x - W * .38, LEVEL_W - W));
+}
+
+/* ---------- отрисовка ---------- */
+function rect(x, y, w, h, col){ cx.fillStyle = col; cx.fillRect(Math.round(x - cam), Math.round(y), w, h); }
+
+function drawBG(){
+  const sky = cx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#8ec3e6'); sky.addColorStop(1, '#d8e9f4');
+  cx.fillStyle = sky; cx.fillRect(0, 0, W, H);
+  // дальние дома-новостройки (параллакс)
+  cx.fillStyle = 'rgba(90,110,130,.35)';
+  for(let i = 0; i < 14; i++){
+    const bx = ((i * 420 - cam * .3) % (LEVEL_W * .5) + W) % (W + 400) - 200;
+    const bh = 120 + (i % 4) * 46;
+    cx.fillRect(bx, H - 108 - bh, 130, bh);
+  }
+  // башенный кран
+  const kx = 620 - cam * .55;
+  cx.fillStyle = 'rgba(60,70,80,.5)';
+  cx.fillRect(kx, 60, 10, H - 168); cx.fillRect(kx - 150, 60, 320, 8); cx.fillRect(kx + 150, 68, 3, 60);
+}
+
+function drawTiles(){
+  const c0 = Math.floor(cam / T), c1 = Math.min(COLS - 1, Math.ceil((cam + W) / T));
+  for(let c = c0; c <= c1; c++) for(let r = 0; r < ROWS; r++){
+    if(!isSolid(c, r)) continue;
+    const gnd = r >= 13;
+    rect(c * T, r * T, T, T, gnd ? '#8a7862' : '#b98a4e');           // земля / доски лесов
+    if(!isSolid(c, r - 1)){                                          // верхняя кромка
+      rect(c * T, r * T, T, 6, gnd ? '#5f6e57' : '#d8ab6c');
+      if(gnd){ // сигнальная лента по краю площадки
+        cx.fillStyle = '#e6b40e';
+        for(let s = 0; s < 3; s++) cx.fillRect(Math.round(c * T - cam) + s * 14, r * T + 2, 7, 3);
+      }
+    }
+  }
+  // флаг финиша
+  const fx = FLAG_X - cam;
+  cx.fillStyle = '#4a4f57'; cx.fillRect(fx, 6 * T, 6, 7 * T);
+  cx.fillStyle = '#e04b3a'; cx.fillRect(fx + 6, 6 * T, 66, 40);
+  cx.fillStyle = '#fff'; cx.font = 'bold 13px sans-serif'; cx.fillText('СДАЧА', fx + 12, 6 * T + 25);
+}
+
+function drawCoins(){
+  for(const c of coins){
+    if(c.taken) continue;
+    const x = c.c * T + T / 2 - cam, y = c.r * T + T / 2 + Math.sin(tick / 12 + c.c) * 3;
+    cx.fillStyle = '#e8b90f'; cx.beginPath();
+    for(let i = 0; i < 6; i++){ const a = i * Math.PI / 3 + tick / 40;
+      cx[i ? 'lineTo' : 'moveTo'](x + Math.cos(a) * 9, y + Math.sin(a) * 9); }
+    cx.closePath(); cx.fill();
+    cx.fillStyle = '#a37f05'; cx.beginPath(); cx.arc(x, y, 3.4, 0, 7); cx.fill();
+  }
+}
+
+function drawPlayer(){
+  const p = player, x = p.x - cam, y = p.y, blink = state === 'dead' && (tick >> 2) % 2;
+  if(blink) return;
+  cx.save(); cx.translate(Math.round(x + p.w / 2), Math.round(y)); cx.scale(p.face, 1);
+  cx.fillStyle = '#2b57a8'; cx.fillRect(-11, 14, 22, 14);              // комбинезон
+  const step = p.onGround && Math.abs(p.vx) > 0 ? Math.sin(tick / 3) * 4 : 0;
+  cx.fillStyle = '#1d3f7c';
+  cx.fillRect(-10, 28, 8, 6 + step); cx.fillRect(2, 28, 8, 6 - step);  // ноги
+  cx.fillStyle = '#f0b98d'; cx.fillRect(-8, 4, 16, 11);                // лицо
+  cx.fillStyle = '#232323'; cx.fillRect(2, 8, 3, 3);                   // глаз
+  cx.fillStyle = '#e88f1e'; cx.fillRect(-11, -2, 22, 7); cx.fillRect(-7, -6, 14, 5); // каска
+  cx.fillStyle = '#f2c113'; cx.fillRect(-11, 16, 22, 4);               // пояс с инструментом
+  cx.restore();
+}
+
+function drawEnemies(){
+  for(const e of enemies){
+    if(e.dead) continue;
+    const x = e.x - cam, wob = Math.sin(tick / 5 + e.x) * 2;
+    cx.fillStyle = '#9aa0a8'; cx.fillRect(x + 2, e.y + 6 + wob, e.w - 4, e.h - 6 - wob); // ведро
+    cx.fillStyle = '#7b828b'; cx.fillRect(x, e.y + 4 + wob, e.w, 5);
+    cx.fillStyle = '#d94f3d'; cx.fillRect(x + 4, e.y + 14, e.w - 8, 6);                 // потёк краски
+    cx.fillStyle = '#232323';
+    cx.fillRect(x + 7, e.y + 20, 4, 4); cx.fillRect(x + e.w - 11, e.y + 20, 4, 4);      // глазки
+  }
+}
+
+function drawHUD(){
+  cx.fillStyle = 'rgba(21,23,28,.65)'; cx.fillRect(10, 10, 240, 34);
+  cx.fillStyle = '#f2c113'; cx.font = 'bold 18px monospace';
+  cx.fillText(`🔩 ${score}/${COINS_TOTAL + ENEMY_SPAWNS.length * 2}`, 20, 33);
+  cx.fillText('❤'.repeat(Math.max(0, lives)), 160, 33);
+}
+
+function overlay(title, sub){
+  cx.fillStyle = 'rgba(21,23,28,.72)'; cx.fillRect(0, 0, W, H);
+  cx.textAlign = 'center'; cx.fillStyle = '#f2c113';
+  cx.font = 'bold 52px sans-serif'; cx.fillText(title, W / 2, H / 2 - 20);
+  cx.fillStyle = '#ecebe6'; cx.font = '22px sans-serif'; cx.fillText(sub, W / 2, H / 2 + 28);
+  cx.textAlign = 'left';
+}
+
+function draw(){
+  drawBG(); drawTiles(); drawCoins(); drawEnemies(); drawPlayer(); drawHUD();
+  if(state === 'title') overlay('ПРОРАБ 🏗️', 'Нажми любую кнопку — объект сам себя не сдаст!');
+  if(state === 'over')  overlay('ОБЪЕКТ ПРОВАЛЕН', `Собрано болтов: ${score}. Нажми, чтобы начать заново.`);
+  if(state === 'win')   overlay('ОБЪЕКТ СДАН! 🎉', `Счёт: ${score}. Нажми, чтобы сыграть ещё раз.`);
+}
+
+(function loop(){ update(); draw(); requestAnimationFrame(loop); })();
+</script>
