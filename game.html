@@ -28,7 +28,7 @@
 
 <div class="bar">
   <b style="color:#ecebe6">🏗️ ПРОРАБ: испытание стройкой</b>
-  <span>🔩 собери болты · 🪣 не трогай вёдра</span>
+  <span>🔩 болты — это и очки, и патроны · 🪣 вёдра можно расстреливать</span>
 </div>
 
 <div class="stage"><canvas id="cv" width="960" height="540"></canvas></div>
@@ -39,10 +39,11 @@
     <button class="pbtn" id="btnR" aria-label="Вправо">▶</button>
   </div>
   <div class="pad">
+    <button class="pbtn" id="btnF" aria-label="Выстрел">🔩</button>
     <button class="pbtn jump" id="btnJ" aria-label="Прыжок">⤒</button>
   </div>
 </div>
-<p class="hint">Телефон: кнопки под игрой (лучше повернуть горизонтально). Компьютер: стрелки / A D + пробел.</p>
+<p class="hint">Телефон: кнопки под игрой (лучше повернуть горизонтально). Компьютер: стрелки / A D, пробел — прыжок, X или F — выстрел болтом.</p>
 
 <script>
 'use strict';
@@ -75,11 +76,11 @@ const FLAG_X = 134 * T, LEVEL_W = COLS * T;
 
 /* ---------- состояние ---------- */
 const player = {x:0, y:0, w:26, h:34, vx:0, vy:0, onGround:false, face:1};
-let enemies = [], cam = 0, score = 0, lives = 3;
+let enemies = [], bullets = [], fireCd = 0, cam = 0, score = 0, lives = 3;
 let state = 'title';                              // title | play | dead | over | win
 let stateTimer = 0, tick = 0;
 
-function spawnPlayer(){ player.x = 2 * T; player.y = 12 * T - player.h; player.vx = 0; player.vy = 0; }
+function spawnPlayer(){ player.x = 2 * T; player.y = 12 * T - player.h; player.vx = 0; player.vy = 0; bullets = []; fireCd = 0; }
 function resetEnemies(){
   enemies = ENEMY_SPAWNS.map(c => ({x: c * T + 3, y: 13 * T - 30, w: 30, h: 30, vx: -1, dead: false}));
 }
@@ -89,19 +90,21 @@ function newGame(){
 }
 
 /* ---------- ввод ---------- */
-const input = {l: false, r: false, j: false};
+const input = {l: false, r: false, j: false, f: false};
 let jumpHeld = false;
 addEventListener('keydown', e => {
   if(['ArrowLeft','ArrowRight','ArrowUp','Space'].includes(e.code)) e.preventDefault();
   if(e.code === 'ArrowLeft'  || e.code === 'KeyA') input.l = true;
   if(e.code === 'ArrowRight' || e.code === 'KeyD') input.r = true;
   if(e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') input.j = true;
+  if(e.code === 'KeyX' || e.code === 'KeyF') input.f = true;
   anyPress();
 });
 addEventListener('keyup', e => {
   if(e.code === 'ArrowLeft'  || e.code === 'KeyA') input.l = false;
   if(e.code === 'ArrowRight' || e.code === 'KeyD') input.r = false;
   if(e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') input.j = false;
+  if(e.code === 'KeyX' || e.code === 'KeyF') input.f = false;
 });
 function bindBtn(id, key){
   const el = document.getElementById(id);
@@ -112,7 +115,7 @@ function bindBtn(id, key){
   el.addEventListener('pointercancel', off);
   el.addEventListener('pointerleave', off);
 }
-bindBtn('btnL', 'l'); bindBtn('btnR', 'r'); bindBtn('btnJ', 'j');
+bindBtn('btnL', 'l'); bindBtn('btnR', 'r'); bindBtn('btnJ', 'j'); bindBtn('btnF', 'f');
 cv.addEventListener('pointerdown', () => anyPress());
 
 function anyPress(){
@@ -138,6 +141,8 @@ function beep(freq, dur, type, vol){
 const sJump = () => beep(320, .15, 'square');
 const sCoin = () => { beep(950, .07, 'square'); setTimeout(() => beep(1270, .12, 'square'), 60); };
 const sStomp = () => beep(140, .18, 'triangle', .12);
+const sShot  = () => beep(600, .06, 'sawtooth', .07);
+const sEmpty = () => beep(220, .05, 'square', .05);
 const sHurt = () => beep(90, .4, 'sawtooth', .1);
 const sWin  = () => [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => beep(f, .18, 'square'), i * 130));
 
@@ -194,6 +199,29 @@ function update(){
     if(c.taken) continue;
     const box = {x: c.c * T + 8, y: c.r * T + 8, w: T - 16, h: T - 16};
     if(overlap(player, box)){ c.taken = true; score++; sCoin(); }
+  }
+
+  // стрельба болтами (тратит 1 болт за выстрел)
+  if(fireCd > 0) fireCd--;
+  if(input.f && fireCd === 0){
+    fireCd = 14;
+    if(score > 0){
+      score--;
+      bullets.push({x: player.x + player.w / 2 + player.face * 16, y: player.y + 18, vx: player.face * 10, life: 70});
+      sShot();
+    } else sEmpty();
+  }
+  for(let i = bullets.length - 1; i >= 0; i--){
+    const b = bullets[i];
+    b.x += b.vx; b.life--;
+    const bc = Math.floor(b.x / T), br = Math.floor(b.y / T);
+    let gone = b.life <= 0 || isSolid(bc, br);
+    if(!gone) for(const e of enemies){
+      if(!e.dead && b.x > e.x && b.x < e.x + e.w && b.y > e.y && b.y < e.y + e.h){
+        e.dead = true; score += 2; sStomp(); gone = true; break;
+      }
+    }
+    if(gone) bullets.splice(i, 1);
   }
 
   // враги
@@ -281,7 +309,21 @@ function drawPlayer(){
   cx.fillStyle = '#232323'; cx.fillRect(2, 8, 3, 3);                   // глаз
   cx.fillStyle = '#e88f1e'; cx.fillRect(-11, -2, 22, 7); cx.fillRect(-7, -6, 14, 5); // каска
   cx.fillStyle = '#f2c113'; cx.fillRect(-11, 16, 22, 4);               // пояс с инструментом
+  cx.fillStyle = '#3a3d44';                                            // болтомёт
+  cx.fillRect(4, 15, 16, 6); cx.fillRect(14, 12, 6, 4); cx.fillRect(6, 21, 4, 5);
+  if(fireCd > 10){ cx.fillStyle = '#ffd94d'; cx.fillRect(20, 14, 7, 8); }  // вспышка
   cx.restore();
+}
+
+function drawBullets(){
+  for(const b of bullets){
+    const x = b.x - cam, a = tick / 2;
+    cx.fillStyle = '#e8b90f'; cx.beginPath();
+    for(let i = 0; i < 6; i++){ const t2 = i * Math.PI / 3 + a;
+      cx[i ? 'lineTo' : 'moveTo'](x + Math.cos(t2) * 6, b.y + Math.sin(t2) * 6); }
+    cx.closePath(); cx.fill();
+    cx.fillStyle = 'rgba(232,185,15,.35)'; cx.fillRect(x - b.vx * 1.5, b.y - 2, b.vx * 1.5, 4);
+  }
 }
 
 function drawEnemies(){
@@ -299,7 +341,7 @@ function drawEnemies(){
 function drawHUD(){
   cx.fillStyle = 'rgba(21,23,28,.65)'; cx.fillRect(10, 10, 240, 34);
   cx.fillStyle = '#f2c113'; cx.font = 'bold 18px monospace';
-  cx.fillText(`🔩 ${score}/${COINS_TOTAL + ENEMY_SPAWNS.length * 2}`, 20, 33);
+  cx.fillText(`🔩 ${score}`, 20, 33);
   cx.fillText('❤'.repeat(Math.max(0, lives)), 160, 33);
 }
 
@@ -312,7 +354,7 @@ function overlay(title, sub){
 }
 
 function draw(){
-  drawBG(); drawTiles(); drawCoins(); drawEnemies(); drawPlayer(); drawHUD();
+  drawBG(); drawTiles(); drawCoins(); drawEnemies(); drawBullets(); drawPlayer(); drawHUD();
   if(state === 'title') overlay('ПРОРАБ 🏗️', 'Нажми любую кнопку — объект сам себя не сдаст!');
   if(state === 'over')  overlay('ОБЪЕКТ ПРОВАЛЕН', `Собрано болтов: ${score}. Нажми, чтобы начать заново.`);
   if(state === 'win')   overlay('ОБЪЕКТ СДАН! 🎉', `Счёт: ${score}. Нажми, чтобы сыграть ещё раз.`);
