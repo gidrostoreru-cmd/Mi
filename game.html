@@ -29,7 +29,7 @@
 
 <div class="bar">
   <b style="color:#ecebe6">🏗️ ПРОРАБ: испытание стройкой</b>
-  <span>🔩 болты — это и очки, и патроны · 🪣 вёдра можно расстреливать</span>
+  <span>🔩 патроны бесконечные · 🪣 расстреливай вёдра и собирай болты</span>
 </div>
 
 <div class="stage"><canvas id="cv" width="960" height="540"></canvas></div>
@@ -202,15 +202,12 @@ function update(){
     if(overlap(player, box)){ c.taken = true; score++; sCoin(); }
   }
 
-  // стрельба болтами (тратит 1 болт за выстрел)
+  // стрельба болтами (патроны бесконечные)
   if(fireCd > 0) fireCd--;
   if(input.f && fireCd === 0){
     fireCd = 14;
-    if(score > 0){
-      score--;
-      bullets.push({x: player.x + player.w / 2 + player.face * 16, y: player.y + 18, vx: player.face * 10, life: 70});
-      sShot();
-    } else sEmpty();
+    bullets.push({x: player.x + player.w / 2 + player.face * 16, y: player.y + 18, vx: player.face * 10, life: 70});
+    sShot();
   }
   for(let i = bullets.length - 1; i >= 0; i--){
     const b = bullets[i];
