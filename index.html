@@ -1,0 +1,293 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Евроремонт квартир под ключ в Перми: капитальный и косметический ремонт, дизайн-проект, фиксированная смета, договор и гарантия 3 года.">
+<title>Евроремонт в Перми — ремонт квартир под ключ</title>
+
+<style>
+  :root{
+    --bg:        #f6f3ec;  /* тёплая штукатурка */
+    --bg-raise:  #fffdf7;  /* карточки */
+    --ink:       #24262a;  /* графит */
+    --ink-soft:  #5a5d63;
+    --line:      #dcd6c8;
+    --tape:      #f2c113;  /* сигнальный жёлтый, малярный скотч */
+    --tape-ink:  #2a2410;
+    --accent-deep:#1f3a5f; /* чертёжный синий, только для ссылок/акцентов */
+    --shadow: 0 1px 2px rgba(36,38,42,.07), 0 6px 18px rgba(36,38,42,.06);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#1d1f23; --bg-raise:#26282e; --ink:#ecebe6; --ink-soft:#a5a7ab;
+      --line:#3a3d44; --tape:#e8b90f; --tape-ink:#241f0c; --accent-deep:#8fb4e3;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f6f3ec; --bg-raise:#fffdf7; --ink:#24262a; --ink-soft:#5a5d63;
+    --line:#dcd6c8; --tape:#f2c113; --tape-ink:#2a2410; --accent-deep:#1f3a5f;
+    --shadow: 0 1px 2px rgba(36,38,42,.07), 0 6px 18px rgba(36,38,42,.06);
+  }
+  :root[data-theme="dark"]{
+    --bg:#1d1f23; --bg-raise:#26282e; --ink:#ecebe6; --ink-soft:#a5a7ab;
+    --line:#3a3d44; --tape:#e8b90f; --tape-ink:#241f0c; --accent-deep:#8fb4e3;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} }
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:400 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:84px; /* место под плавающую кнопку звонка */
+  }
+  a{color:var(--accent-deep)}
+  a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible{
+    outline:3px solid var(--tape); outline-offset:2px;
+  }
+
+  .wrap{max-width:680px; margin:0 auto; padding:0 20px}
+
+  /* ---- ярлык-«скотч» ---- */
+  .tape{
+    display:inline-block; background:var(--tape); color:var(--tape-ink);
+    font-weight:700; font-size:13px; letter-spacing:.12em; text-transform:uppercase;
+    padding:6px 14px; transform:rotate(-1.5deg);
+    clip-path:polygon(1% 8%, 99% 0%, 100% 92%, 0% 100%);
+  }
+
+  /* ---- шапка ---- */
+  header{
+    border-bottom:1px solid var(--line);
+    padding:14px 0;
+  }
+  header .wrap{display:flex; align-items:center; justify-content:space-between; gap:12px}
+  .logo{font-weight:800; font-size:18px; letter-spacing:.02em; text-decoration:none; color:var(--ink)}
+  .logo span{color:var(--tape); -webkit-text-stroke:.5px var(--tape-ink)}
+  .head-phone{font-weight:700; text-decoration:none; white-space:nowrap; font-size:15px}
+
+  /* ---- герой ---- */
+  .hero{padding:52px 0 44px; position:relative; overflow:hidden}
+  .hero::after{ /* линия лазерного уровня */
+    content:""; position:absolute; left:0; right:0; bottom:88px; height:2px;
+    background:linear-gradient(90deg, transparent, var(--tape) 15%, var(--tape) 85%, transparent);
+    opacity:.55; pointer-events:none;
+  }
+  .hero h1{
+    font-size:clamp(34px, 9vw, 56px); line-height:1.06; font-weight:800;
+    letter-spacing:-.02em; margin:18px 0 16px; text-wrap:balance;
+  }
+  .hero p.lead{font-size:19px; color:var(--ink-soft); max-width:34ch; margin:0 0 30px}
+  .cta-row{display:flex; flex-wrap:wrap; gap:12px}
+  .btn{
+    display:inline-block; text-decoration:none; font-weight:700; font-size:17px;
+    padding:15px 26px; border:none; cursor:pointer; border-radius:4px;
+  }
+  .btn-solid{background:var(--ink); color:var(--bg)}
+  .btn-tape{background:var(--tape); color:var(--tape-ink)}
+
+  /* ---- секции ---- */
+  section{padding:44px 0; border-top:1px solid var(--line)}
+  h2{font-size:clamp(26px, 6vw, 34px); line-height:1.15; font-weight:800; letter-spacing:-.015em; margin:16px 0 8px; text-wrap:balance}
+  .sub{color:var(--ink-soft); margin:0 0 28px; max-width:52ch}
+
+  /* услуги и цены */
+  .cards{display:grid; gap:16px}
+  @media(min-width:640px){.cards{grid-template-columns:repeat(3,1fr)}}
+  .card{
+    background:var(--bg-raise); border:1px solid var(--line); border-radius:6px;
+    padding:22px 20px; box-shadow:var(--shadow);
+    display:flex; flex-direction:column; gap:10px;
+  }
+  .card h3{margin:0; font-size:19px; font-weight:800}
+  .card .price{font-size:24px; font-weight:800; font-variant-numeric:tabular-nums}
+  .card .price small{font-size:14px; font-weight:400; color:var(--ink-soft)}
+  .card ul{margin:0; padding-left:18px; color:var(--ink-soft); font-size:15px; line-height:1.55}
+  .card .fit{margin-top:auto; font-size:14px; color:var(--ink-soft); border-top:1px dashed var(--line); padding-top:10px}
+
+  /* этапы */
+  .steps{list-style:none; margin:0; padding:0; display:grid; gap:0}
+  .steps li{
+    display:grid; grid-template-columns:44px 1fr; gap:14px; padding:16px 0;
+    border-bottom:1px dashed var(--line);
+  }
+  .steps li:last-child{border-bottom:none}
+  .step-n{
+    width:36px; height:36px; border-radius:50%;
+    background:var(--tape); color:var(--tape-ink);
+    display:flex; align-items:center; justify-content:center;
+    font-weight:800; font-size:15px; font-variant-numeric:tabular-nums;
+  }
+  .steps b{display:block; font-size:17px}
+  .steps span{color:var(--ink-soft); font-size:15px}
+
+  /* гарантии */
+  .marks{display:grid; gap:14px}
+  @media(min-width:640px){.marks{grid-template-columns:1fr 1fr}}
+  .mark{
+    background:var(--bg-raise); border:1px solid var(--line); border-radius:6px;
+    padding:16px 18px; box-shadow:var(--shadow);
+  }
+  .mark b{display:block; margin-bottom:4px}
+  .mark span{color:var(--ink-soft); font-size:15px}
+
+  /* контакты */
+  .contact-box{
+    background:var(--bg-raise); border:1px solid var(--line); border-radius:6px;
+    padding:24px 20px; box-shadow:var(--shadow); display:grid; gap:14px;
+  }
+  .contact-box label{font-weight:700; font-size:14px; display:grid; gap:6px}
+  .contact-box input, .contact-box textarea{
+    font:inherit; padding:12px 14px; border:1px solid var(--line); border-radius:4px;
+    background:var(--bg); color:var(--ink); width:100%;
+  }
+  .contact-box textarea{min-height:96px; resize:vertical}
+  .contact-note{font-size:13px; color:var(--ink-soft); margin:0}
+  .big-phone{font-size:26px; font-weight:800; text-decoration:none; color:var(--ink); display:inline-block}
+  .addr{color:var(--ink-soft); font-size:15px}
+
+  footer{border-top:1px solid var(--line); padding:26px 0 34px; color:var(--ink-soft); font-size:14px}
+
+  /* плавающая кнопка звонка */
+  .call-fab{
+    position:fixed; left:16px; right:16px; bottom:16px; z-index:10;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    background:var(--tape); color:var(--tape-ink); text-decoration:none;
+    font-weight:800; font-size:17px; padding:16px; border-radius:6px;
+    box-shadow:0 8px 24px rgba(0,0,0,.25);
+  }
+  @media(min-width:760px){.call-fab{display:none} body{padding-bottom:0}}
+</style>
+
+<header>
+  <div class="wrap">
+    <a class="logo" href="#top">ЕВРО<span>РЕМОНТ</span>·ПЕРМЬ</a>
+    <a class="head-phone" href="tel:+73420000000">+7 (342) 000-00-00</a>
+  </div>
+</header>
+
+<main id="top">
+
+  <div class="hero">
+    <div class="wrap">
+      <span class="tape">Пермь · работаем во всех районах</span>
+      <h1>Евроремонт квартир под&nbsp;ключ</h1>
+      <p class="lead">Фиксированная смета в договоре, свои бригады без субподряда, гарантия 3&nbsp;года. Сдаём точно в срок — или платим неустойку.</p>
+      <div class="cta-row">
+        <a class="btn btn-tape" href="tel:+73420000000">Позвонить</a>
+        <a class="btn btn-solid" href="#contact">Рассчитать смету</a>
+      </div>
+    </div>
+  </div>
+
+  <section id="services">
+    <div class="wrap">
+      <span class="tape">Услуги и цены</span>
+      <h2>Три формата ремонта</h2>
+      <p class="sub">Цена за квадратный метр — ориентир по работам без материалов. Точную смету считаем бесплатно после замера и не меняем её по ходу работ.</p>
+      <div class="cards">
+        <div class="card">
+          <h3>Косметический</h3>
+          <div class="price">от 7 000 ₽ <small>/ м²</small></div>
+          <ul>
+            <li>обои, покраска, ламинат</li>
+            <li>замена розеток и светильников</li>
+            <li>потолки, плинтусы, двери</li>
+          </ul>
+          <div class="fit">Подходит: освежить квартиру перед продажей или сдачей. Срок — от 3 недель.</div>
+        </div>
+        <div class="card">
+          <h3>Капитальный</h3>
+          <div class="price">от 12 000 ₽ <small>/ м²</small></div>
+          <ul>
+            <li>новая электрика и сантехника</li>
+            <li>выравнивание стен и полов</li>
+            <li>санузел под ключ, перепланировка</li>
+          </ul>
+          <div class="fit">Подходит: вторичка и новостройки в черновой отделке. Срок — от 2 месяцев.</div>
+        </div>
+        <div class="card">
+          <h3>Евроремонт</h3>
+          <div class="price">от 16 000 ₽ <small>/ м²</small></div>
+          <ul>
+            <li>дизайн-проект и 3D-визуализация</li>
+            <li>скрытый свет, тёплые полы, умный дом</li>
+            <li>инженерные системы и шумоизоляция</li>
+          </ul>
+          <div class="fit">Подходит: квартира «как с картинки» с авторским надзором. Срок — от 3 месяцев.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="steps">
+    <div class="wrap">
+      <span class="tape">Как мы работаем</span>
+      <h2>От замера до ключей — 6 шагов</h2>
+      <ol class="steps">
+        <li><span class="step-n">1</span><div><b>Замер и консультация — бесплатно</b><span>Приезжаем в удобное время, обмеряем квартиру, обсуждаем задачи и бюджет.</span></div></li>
+        <li><span class="step-n">2</span><div><b>Смета с фиксацией цены</b><span>Подробная смета по работам и материалам за 2–3 дня. Цена закрепляется в договоре.</span></div></li>
+        <li><span class="step-n">3</span><div><b>Договор и график работ</b><span>Прописываем сроки по этапам и неустойку за каждый день просрочки.</span></div></li>
+        <li><span class="step-n">4</span><div><b>Черновые работы</b><span>Демонтаж, электрика, сантехника, стяжка, штукатурка. Скрытые работы принимаете с фотоотчётом.</span></div></li>
+        <li><span class="step-n">5</span><div><b>Чистовая отделка</b><span>Плитка, полы, стены, потолки, двери, сборка кухни и мебели.</span></div></li>
+        <li><span class="step-n">6</span><div><b>Уборка и сдача объекта</b><span>Клининг после ремонта, подписание акта, гарантия 3 года на все работы.</span></div></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="why">
+    <div class="wrap">
+      <span class="tape">Почему мы</span>
+      <h2>Ремонт без нервов</h2>
+      <div class="marks">
+        <div class="mark"><b>Смета не растёт</b><span>Цена из договора — окончательная. Все допработы только по письменному согласованию.</span></div>
+        <div class="mark"><b>Свои бригады</b><span>Штатные мастера-отделочники, электрики и сантехники. Никакого субподряда.</span></div>
+        <div class="mark"><b>Фотоотчёт каждый день</b><span>Ежедневные фото и видео с объекта в мессенджер — приезжать проверять не обязательно.</span></div>
+        <div class="mark"><b>Гарантия 3 года</b><span>По договору. Если что-то пойдёт не так — устраняем за свой счёт.</span></div>
+        <div class="mark"><b>Работаем по всей Перми</b><span>Мотовилиха, Индустриальный, Свердловский, Дзержинский, Кировский, Ленинский, Орджоникидзевский районы и пригород.</span></div>
+        <div class="mark"><b>Материалы со скидкой</b><span>Партнёрские цены в магазинах Перми — экономия до 15% от розницы, чеки прозрачны.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="contact">
+    <div class="wrap">
+      <span class="tape">Контакты</span>
+      <h2>Получите расчёт сметы</h2>
+      <p class="sub">Позвоните или оставьте заявку — перезвоним в течение 15 минут в рабочее время и договоримся о бесплатном замере.</p>
+
+      <div class="contact-box">
+        <div>
+          <a class="big-phone" href="tel:+73420000000">+7 (342) 000-00-00</a>
+          <p class="addr">Ежедневно с 9:00 до 20:00 · г. Пермь</p>
+        </div>
+        <form action="mailto:oootdmonolitr@gmail.com" method="post" enctype="text/plain">
+          <div style="display:grid; gap:14px">
+            <label>Ваше имя
+              <input name="Имя" type="text" autocomplete="name" required>
+            </label>
+            <label>Телефон
+              <input name="Телефон" type="tel" autocomplete="tel" inputmode="tel" placeholder="+7" required>
+            </label>
+            <label>Что нужно сделать
+              <textarea name="Задача" placeholder="Например: двухкомнатная 54 м², новостройка в черновой отделке"></textarea>
+            </label>
+            <button class="btn btn-solid" type="submit">Отправить заявку</button>
+            <p class="contact-note">Нажимая «Отправить», вы соглашаетесь на обработку персональных данных.</p>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    Евроремонт·Пермь — ремонт квартир под ключ в Перми.<br>
+    Телефон и реквизиты замените на свои перед публикацией сайта.
+  </div>
+</footer>
+
+<a class="call-fab" href="tel:+73420000000">📞 Позвонить: +7 (342) 000-00-00</a>
