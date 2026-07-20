@@ -13,21 +13,28 @@
 'use strict';
 
 const SERVICES = [
-  { key: 'cold',  name: 'Холодная вода', unit: 'м³',   provider: 'Водоканал' },
-  { key: 'hot',   name: 'Горячая вода',  unit: 'м³',   provider: 'Теплосети' },
-  { key: 'sewer', name: 'Водоотведение', unit: 'м³',   provider: 'Водоканал' },
-  { key: 'heat',  name: 'Отопление',     unit: 'Гкал', provider: 'Теплосети' },
-  { key: 'gas',   name: 'Газоснабжение', unit: 'м³',   provider: 'Газовая служба' },
+  { key: 'cold',  name: 'Холодная вода',  unit: 'м³',    provider: 'Водоканал' },
+  { key: 'hot',   name: 'Горячая вода',   unit: 'м³',    provider: 'Теплосети' },
+  { key: 'sewer', name: 'Водоотведение',  unit: 'м³',    provider: 'Водоканал' },
+  { key: 'heat',  name: 'Отопление',      unit: 'Гкал',  provider: 'Теплосети' },
+  { key: 'gas',   name: 'Газоснабжение',  unit: 'м³',    provider: 'Газовая служба' },
+  { key: 'elec',  name: 'Электроэнергия', unit: 'кВт·ч', provider: 'Энергосбыт' },
+  { key: 'tko',   name: 'Вывоз ТКО',      unit: 'чел',   provider: 'Регоператор ТКО' },
 ];
 
+/* Услуги, рассчитываемые по индивидуальному прибору учёта, и их нормативы. */
+const METERED = { cold: 'coldPerPerson', hot: 'hotPerPerson', gas: 'gasPerPerson', elec: 'elecPerPerson' };
+
 const DEFAULT_SETTINGS = {
-  tariffs: { cold: 45.60, hot: 215.40, sewer: 32.80, heat: 2450.00, gas: 7.60 },
+  tariffs: { cold: 45.60, hot: 215.40, sewer: 32.80, heat: 2450.00, gas: 7.60, elec: 4.85, tko: 145.00 },
   norms: {
     coldPerPerson: 4.85,   // м³ на человека в месяц
     hotPerPerson: 3.11,    // м³ на человека в месяц
     gasPerPerson: 10.40,   // м³ на человека в месяц (плита + подогрев)
+    elecPerPerson: 90,     // кВт·ч на человека в месяц
     heatPerM2: 0.019,      // Гкал на м² в месяц (1/12 годового объёма)
   },
+  enabledServices: { cold: true, hot: true, sewer: true, heat: true, gas: true, elec: true, tko: true },
   raisingCoef: 1.5,        // повышающий коэффициент при отсутствии ИПУ (п. 42 ПП №354)
   keyRate: 16.0,           // ключевая ставка ЦБ РФ, % годовых (настраивается)
   subsidy: {
@@ -52,19 +59,22 @@ function meterVolume(prev, curr) {
    Возвращает массив строк начислений {service, method, volume, unit, tariff, sum}. */
 function calcCharges(abonent, readings, settings) {
   const t = settings.tariffs, n = settings.norms, k = settings.raisingCoef;
+  const en = settings.enabledServices;
+  const isOn = key => !en || en[key] !== false;
   const rows = [];
-  const vols = {}; // базовые объёмы для водоотведения
+  const vols = { cold: 0, hot: 0 }; // базовые объёмы воды для водоотведения
 
-  for (const key of ['cold', 'hot', 'gas']) {
-    const meter = (abonent.meters && abonent.meters[key]) || { has: false, can: true };
-    const perPerson = key === 'cold' ? n.coldPerPerson : key === 'hot' ? n.hotPerPerson : n.gasPerPerson;
+  // услуги по ИПУ: объём по показаниям либо по нормативу (с коэффициентом при техвозможности)
+  const meteredCalc = key => {
+    const meter = (abonent.meters && abonent.meters[key]) || { has: false, can: false };
+    const perPerson = n[METERED[key]];
     const r = readings && readings[key];
     let volume, method, coef = 1;
     if (meter.has && r && (Number(r.curr) || 0) > 0) {
       volume = meterVolume(r.prev, r.curr);
       method = 'ИПУ';
     } else if (meter.has) {
-      // счётчик есть, показания не переданы — среднее заменяем нормативом без коэффициента
+      // счётчик есть, показания не переданы — начисляем по нормативу без коэффициента
       volume = round3(perPerson * abonent.residents);
       method = 'Норматив (нет показаний)';
     } else {
@@ -72,18 +82,27 @@ function calcCharges(abonent, readings, settings) {
       coef = meter.can ? k : 1;
       method = coef > 1 ? `Норматив ×${k}` : 'Норматив';
     }
-    vols[key] = volume;
-    rows.push({ service: key, method, volume, unit: 'м³', tariff: t[key], sum: round2(volume * t[key] * coef) });
+    return { volume, method, coef };
+  };
+
+  for (const s of SERVICES) {
+    if (!isOn(s.key)) continue;
+    if (METERED[s.key]) {
+      const { volume, method, coef } = meteredCalc(s.key);
+      if (s.key === 'cold' || s.key === 'hot') vols[s.key] = volume;
+      rows.push({ service: s.key, method, volume, unit: s.unit, tariff: t[s.key], sum: round2(volume * t[s.key] * coef) });
+    } else if (s.key === 'sewer') {
+      // сумма объёмов ХВС и ГВС, повышающий коэффициент не применяется
+      const v = round3(vols.cold + vols.hot);
+      rows.push({ service: 'sewer', method: 'ХВС + ГВС', volume: v, unit: 'м³', tariff: t.sewer, sum: round2(v * t.sewer) });
+    } else if (s.key === 'heat') {
+      // по площади, равномерно в течение года (1/12)
+      const v = round3(n.heatPerM2 * abonent.area);
+      rows.push({ service: 'heat', method: 'По площади (1/12)', volume: v, unit: 'Гкал', tariff: t.heat, sum: round2(v * t.heat) });
+    } else if (s.key === 'tko') {
+      rows.push({ service: 'tko', method: 'По проживающим', volume: abonent.residents, unit: 'чел', tariff: t.tko, sum: round2(abonent.residents * t.tko) });
+    }
   }
-
-  // Водоотведение: сумма объёмов ХВС и ГВС, повышающий коэффициент не применяется
-  const sewerVol = round3(vols.cold + vols.hot);
-  rows.splice(2, 0, { service: 'sewer', method: 'ХВС + ГВС', volume: sewerVol, unit: 'м³', tariff: t.sewer, sum: round2(sewerVol * t.sewer) });
-
-  // Отопление: по площади, равномерно в течение года (1/12)
-  const heatVol = round3(n.heatPerM2 * abonent.area);
-  rows.splice(3, 0, { service: 'heat', method: 'По площади (1/12)', volume: heatVol, unit: 'Гкал', tariff: t.heat, sum: round2(heatVol * t.heat) });
-
   return rows;
 }
 
@@ -141,7 +160,7 @@ function allocatePayment(debtByMonth, sum) {
 }
 
 const Billing = {
-  SERVICES, DEFAULT_SETTINGS, round2, round3,
+  SERVICES, METERED, DEFAULT_SETTINGS, round2, round3,
   meterVolume, calcCharges, calcSubsidy, dueDate, calcPenalty, calcPenaltyTotal, allocatePayment,
 };
 

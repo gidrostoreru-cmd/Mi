@@ -48,7 +48,7 @@ const Seed = (() => {
       street, house, apt,
       address: `${street}, д. ${house}${apt ? ', кв. ' + apt : ''}`,
       area, residents, familyIncome, subsidyOn, payerType,
-      meters: { cold: meter(0.72), hot: meter(0.66), gas: meter(0.55) },
+      meters: { cold: meter(0.72), hot: meter(0.66), gas: meter(0.55), elec: meter(0.85) },
       balance: 0,          // текущий долг (+) / аванс (−)
       debtByMonth: {},     // остатки долга по месяцам для расчёта пеней
       search: '',          // строка для поиска, заполняется ниже
@@ -58,10 +58,10 @@ const Seed = (() => {
   /* Генерация показаний за месяц: правдоподобный расход вокруг норматива. */
   function makeReadings(ab, prevReadings, rnd, settings) {
     const n = settings.norms;
-    const out = { aid: ab.id, ym: '', cold: null, hot: null, gas: null };
-    for (const key of ['cold', 'hot', 'gas']) {
-      if (!ab.meters[key].has) continue;
-      const perPerson = key === 'cold' ? n.coldPerPerson : key === 'hot' ? n.hotPerPerson : n.gasPerPerson;
+    const out = { aid: ab.id, ym: '', cold: null, hot: null, gas: null, elec: null };
+    for (const key of Object.keys(Billing.METERED)) {
+      if (!ab.meters[key] || !ab.meters[key].has) continue;
+      const perPerson = n[Billing.METERED[key]];
       const prev = prevReadings && prevReadings[key] ? prevReadings[key].curr : Math.round(rnd() * 400);
       const use = Math.max(0.2, perPerson * ab.residents * (0.55 + rnd() * 0.9));
       out[key] = { prev, curr: Math.round((prev + use) * 1000) / 1000 };
