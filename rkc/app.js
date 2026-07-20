@@ -30,6 +30,9 @@ const ymShort = ym => { const [y, m] = ym.split('-').map(Number); return MONTHS_
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const nextYm = ym => { let [y, m] = ym.split('-').map(Number); m++; if (m > 12) { m = 1; y++; } return `${y}-${String(m).padStart(2, '0')}`; };
 const svcByKey = key => Billing.SERVICES.find(s => s.key === key);
+const svcProvider = key => (App.settings.providers && App.settings.providers[key]) || svcByKey(key).provider;
+const TRANSLIT = { а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'j',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'c',ч:'ch',ш:'sh',щ:'sch',ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya' };
+const translit = s => s.toLowerCase().split('').map(c => TRANSLIT[c] !== undefined ? TRANSLIT[c] : (/[a-z0-9]/.test(c) ? c : '-')).join('').replace(/-+/g, '-').replace(/^-|-$/g, '');
 const SVC_COLORS = { cold: 'var(--svc-cold)', hot: 'var(--svc-hot)', sewer: 'var(--svc-sewer)', heat: 'var(--svc-heat)', gas: 'var(--svc-gas)', elec: 'var(--svc-elec)', tko: 'var(--svc-tko)' };
 const enabledServices = () => Billing.SERVICES.filter(s => !App.settings.enabledServices || App.settings.enabledServices[s.key] !== false);
 
@@ -137,6 +140,7 @@ function migrate() {
   s.norms = { ...d.norms, ...s.norms };
   s.subsidy = { ...d.subsidy, ...s.subsidy };
   if (!s.enabledServices) s.enabledServices = { ...d.enabledServices };
+  s.providers = { ...d.providers, ...s.providers };
   for (const ab of App.abonents) {
     if (!ab.meters.elec) ab.meters.elec = { has: false, can: false };
   }
@@ -248,7 +252,7 @@ function renderDash() {
     return `
       <a class="card svc-card" href="#/service/${s.key}">
         <div class="svc-head"><span class="dot" style="background:${SVC_COLORS[s.key]}"></span>${s.name}</div>
-        <div class="svc-meta">${esc(s.provider)} · ${fmtMoney(App.settings.tariffs[s.key])} ₽/${s.unit}</div>
+        <div class="svc-meta">${esc(svcProvider(s.key))} · ${fmtMoney(App.settings.tariffs[s.key])} ₽/${s.unit}</div>
         <div class="svc-nums">
           <span>Начислено${lc ? ' за ' + ymShort(lc) : ''}<b class="num">${fmtCompact(sum)}</b></span>
           <span>Объём<b class="num">${fmtVol(vol)} ${s.unit}</b></span>
@@ -933,7 +937,7 @@ async function renderService(key) {
     <div class="page-head">
       <div>
         <h1><span class="dot" style="background:${SVC_COLORS[key]}; display:inline-block; width:14px; height:14px; border-radius:4px; margin-right:6px"></span>${svc.name}</h1>
-        <div class="sub">${esc(svc.provider)} · тариф ${fmtMoney(App.settings.tariffs[key])} ₽/${svc.unit}</div>
+        <div class="sub">${esc(svcProvider(key))} · тариф ${fmtMoney(App.settings.tariffs[key])} ₽/${svc.unit}</div>
       </div>
       <a class="btn secondary" href="#/">← На главную</a>
     </div>
@@ -1188,6 +1192,16 @@ async function renderPayments() {
       <div id="qpMatches" class="small" style="margin-top:8px"></div>
     </div>
 
+    <h2 class="eyebrow">Загрузка реестра платежей</h2>
+    <div class="card pad">
+      <div class="toolbar">
+        <label class="btn secondary" style="cursor:pointer">📄 Загрузить реестр (CSV)<input type="file" id="payReg" accept=".csv,.txt" hidden></label>
+        <span class="muted small">Формат строки: <code>лицевой счёт;сумма;дата</code> (дата необязательна).
+          Так зачисляются реестры оплат из банка, от Пермэнергосбыта и других поставщиков.</span>
+      </div>
+      <div id="payRegResult" class="small" style="margin-top:10px"></div>
+    </div>
+
     <h2 class="eyebrow">Последние платежи</h2>
     <div class="card table-scroll">
       <table>
@@ -1229,6 +1243,51 @@ async function renderPayments() {
     await takePayment(selected, sum);
     toast(`Платёж ${fmtMoney(sum)} ₽ принят: ${selected.account}`);
     renderPayments();
+  };
+
+  $('#payReg').onchange = async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const out = $('#payRegResult');
+    out.textContent = 'Обрабатываем реестр…';
+    const text = await file.text();
+    const byAccount = new Map(App.abonents.map(a => [a.account.toUpperCase(), a]));
+    const byNumber = new Map(App.abonents.map(a => [a.account.replace(/\D/g, ''), a]));
+    let ok = 0, total = 0;
+    const bad = [];
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      // разделитель полей: «;» или табуляция; запятая — только если нет «;» (иначе это десятичная)
+      const sep = line.includes(';') ? ';' : line.includes('\t') ? '\t' : ',';
+      const parts = line.split(sep).map(x => x.trim().replace(/^"|"$/g, ''));
+      if (parts.length < 2) { bad.push(line); continue; }
+      const accRaw = parts[0].toUpperCase();
+      const ab = byAccount.get(accRaw) || byNumber.get(accRaw.replace(/\D/g, ''));
+      const sum = Billing.round2(parseFloat(parts[1].replace(/\s/g, '').replace(',', '.')));
+      if (!ab || !(sum > 0)) {
+        // строку-шапку без цифр не считаем ошибкой
+        if (/[0-9]/.test(parts[1] || '')) bad.push(line);
+        continue;
+      }
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(parts[2] || '') ? parts[2] : todayISO();
+      await DB.put('payments', { aid: ab.id, date, sum });
+      const alloc = Billing.allocatePayment(ab.debtByMonth, sum);
+      ab.debtByMonth = alloc.debtByMonth;
+      ab.balance = Billing.round2(ab.balance - sum);
+      if (ab.installment && ab.balance <= 0.005) delete ab.installment;
+      await DB.put('abonents', ab);
+      const pym = date.slice(0, 7);
+      if (!App.stats.byYm[pym]) App.stats.byYm[pym] = { accrued: {}, volume: {}, accruedTotal: 0, subsidyTotal: 0, paid: 0, count: 0 };
+      App.stats.byYm[pym].paid = Billing.round2((App.stats.byYm[pym].paid || 0) + sum);
+      ok++; total = Billing.round2(total + sum);
+    }
+    await DB.kvSet('stats', App.stats);
+    out.innerHTML = `<span class="badge ok">Зачислено: ${ok.toLocaleString('ru-RU')} платежей на ${fmtMoney(total)} ₽</span>` +
+      (bad.length ? `<br><span class="badge debt" style="margin-top:6px">Не распознано строк: ${bad.length}</span>
+        <div class="muted" style="margin-top:6px">${bad.slice(0, 5).map(esc).join('<br>')}${bad.length > 5 ? '<br>…' : ''}</div>` : '');
+    toast(`Реестр обработан: ${ok} платежей`);
+    e.target.value = '';
   };
 
   const byPayId = new Map(recent.map(p => [String(p.id), p]));
@@ -1299,11 +1358,67 @@ async function renderReports() {
         </tbody>
       </table>
     </div>
-    <p class="note-law">Нажмите на улицу, чтобы раскрыть дома. Пени рассчитаны на сегодня по ставке ${App.settings.keyRate}% (абоненты с рассрочкой — без пеней).</p>`;
+    <p class="note-law">Нажмите на улицу, чтобы раскрыть дома. Пени рассчитаны на сегодня по ставке ${App.settings.keyRate}% (абоненты с рассрочкой — без пеней).</p>
+
+    <h2 class="eyebrow">Реестры для поставщиков — ${ym ? ymName(ym) : 'нет закрытых периодов'}</h2>
+    <div class="card pad">
+      <p class="muted small" style="margin-top:0">Файл-реестр начислений по услугам поставщика для передачи
+        в ресурсоснабжающую организацию (обмен реестрами — стандартная практика при работе
+        с Пермэнергосбытом, НОВОГОР-Прикамье и управляющими компаниями).</p>
+      <div class="toolbar" id="provRegs">
+        ${(() => {
+          const byProv = new Map();
+          for (const s of enabledServices()) {
+            const pn = svcProvider(s.key);
+            if (!byProv.has(pn)) byProv.set(pn, []);
+            byProv.get(pn).push(s.key);
+          }
+          return [...byProv.entries()].map(([pn, keys]) =>
+            `<button class="btn secondary sm" data-prov="${esc(pn)}" data-keys="${keys.join(',')}" ${ym ? '' : 'disabled'}>⬇ ${esc(pn)}</button>`).join('');
+        })()}
+      </div>
+    </div>`;
 
   document.querySelectorAll('.street-row').forEach(tr => tr.addEventListener('click', () => {
     document.querySelectorAll(`.house-row[data-si="${tr.dataset.si}"]`).forEach(r => r.hidden = !r.hidden);
   }));
+
+  document.querySelectorAll('[data-prov]').forEach(btn => btn.onclick = () => {
+    const keys = btn.dataset.keys.split(',');
+    const provider = btn.dataset.prov;
+    const byAid = new Map();
+    for (const c of charges) {
+      if (!keys.includes(c.service)) continue;
+      let agg = byAid.get(c.aid);
+      if (!agg) byAid.set(c.aid, agg = {});
+      agg[c.service] = { volume: c.volume, sum: c.sum };
+    }
+    const svcList = keys.map(svcByKey);
+    const header = ['Лицевой счёт', 'ФИО', 'Адрес',
+      ...svcList.flatMap(s => [`${s.name}: объём, ${s.unit}`, `${s.name}: сумма, ₽`]), 'Итого, ₽'];
+    const rows = [header];
+    let grand = 0;
+    for (const ab of App.abonents) {
+      const agg = byAid.get(ab.id);
+      if (!agg) continue;
+      let total = 0;
+      const cols = svcList.flatMap(s => {
+        const c = agg[s.key];
+        total += c ? c.sum : 0;
+        return [c ? c.volume : 0, c ? c.sum : 0];
+      });
+      grand = Billing.round2(grand + total);
+      rows.push([ab.account, ab.fio, ab.address, ...cols, Billing.round2(total)]);
+    }
+    rows.push(['Итого', '', '', ...svcList.flatMap(() => ['', '']), grand]);
+    const moneyCols = new Set();
+    for (let i = 0; i < svcList.length; i++) moneyCols.add(4 + i * 2);
+    moneyCols.add(header.length - 1);
+    const slug = translit(provider);
+    XLSXMini.download(`reestr-${slug}-${ym}.xlsx`, provider.slice(0, 31), rows,
+      { headerRows: 1, widths: [13, 30, 32, ...svcList.flatMap(() => [13, 13]), 13], moneyCols });
+    toast(`Реестр «${provider}» выгружен`);
+  });
 
   $('#reportXlsx').onclick = () => {
     const rows = [['Улица', 'Дом', 'Лицевых счетов', `Начислено за ${ym ? ymName(ym) : '—'}, ₽`, 'Долг, ₽', 'Должников', 'Пени, ₽']];
@@ -1359,6 +1474,17 @@ function renderAdmin() {
         Уже закрытые периоды не пересчитываются.</p>
     </form>
 
+    <h2 class="eyebrow">Поставщики услуг</h2>
+    <form class="card pad" id="provForm">
+      <div class="fld-row">
+        ${Billing.SERVICES.map(s => `<label class="fld">${s.name}
+          <input type="text" name="p_${s.key}" value="${esc(svcProvider(s.key))}"></label>`).join('')}
+      </div>
+      <div class="toolbar" style="margin-top:14px"><button class="btn secondary">Сохранить поставщиков</button></div>
+      <p class="note-law">Названия организаций попадают в квитанции, уведомления и реестры обмена
+        (раздел «Отчёты» → «Реестры для поставщиков»).</p>
+    </form>
+
     <h2 class="eyebrow">Тарифные планы</h2>
     <p class="muted small" style="max-width:74ch; margin-top:-4px">Базовый план действует для всех абонентов по умолчанию.
       Дополнительные планы (например, льготный или коммерческий) подключаются конкретному абоненту в его карточке —
@@ -1370,6 +1496,15 @@ function renderAdmin() {
     <div class="toolbar" style="margin-top:14px">
       <button class="btn secondary" id="addPlan">+ Новый тарифный план</button>
     </div>`;
+
+  $('#provForm').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    App.settings.providers = Object.fromEntries(Billing.SERVICES.map(s =>
+      [s.key, String(f.get('p_' + s.key) || '').trim() || svcByKey(s.key).provider]));
+    await DB.kvSet('settings', App.settings);
+    toast('Поставщики сохранены');
+  };
 
   $('#svcToggles').onsubmit = async e => {
     e.preventDefault();
