@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Программа учёта услуг ЖКХ: Водоканал, теплосети, электричество, газ. Показания счётчиков, тарифы, расчёт квитанции и история платежей.">
+<title>ЖКХ‑калькулятор — Водоканал, теплосети и другие услуги</title>
+
+<style>
+  :root{
+    --bg:        #f6f3ec;
+    --bg-raise:  #fffdf7;
+    --ink:       #24262a;
+    --ink-soft:  #5a5d63;
+    --line:      #dcd6c8;
+    --tape:      #f2c113;
+    --tape-ink:  #2a2410;
+    --accent-deep:#1f3a5f;
+    --ok:        #2e7d4f;
+    --warn:      #b3541e;
+    --shadow: 0 1px 2px rgba(36,38,42,.07), 0 6px 18px rgba(36,38,42,.06);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#1d1f23; --bg-raise:#26282e; --ink:#ecebe6; --ink-soft:#a5a7ab;
+      --line:#3a3d44; --tape:#e8b90f; --tape-ink:#241f0c; --accent-deep:#8fb4e3;
+      --ok:#7fce9f; --warn:#e8a173;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.35);
+    }
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:400 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--accent-deep)}
+  a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible{
+    outline:3px solid var(--tape); outline-offset:2px;
+  }
+  .wrap{max-width:860px; margin:0 auto; padding:0 16px}
+
+  header{border-bottom:1px solid var(--line); padding:14px 0}
+  header .wrap{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap}
+  .logo{font-weight:800; font-size:18px; text-decoration:none; color:var(--ink)}
+  .logo span{color:var(--tape); -webkit-text-stroke:.5px var(--tape-ink)}
+
+  .tape{
+    display:inline-block; background:var(--tape); color:var(--tape-ink);
+    font-weight:700; font-size:12px; letter-spacing:.12em; text-transform:uppercase;
+    padding:5px 12px; transform:rotate(-1.5deg);
+    clip-path:polygon(1% 8%, 99% 0%, 100% 92%, 0% 100%);
+  }
+
+  h1{font-size:clamp(26px,6vw,38px); line-height:1.1; font-weight:800; letter-spacing:-.02em; margin:18px 0 8px}
+  .lead{color:var(--ink-soft); margin:0 0 8px}
+
+  section{margin:26px 0}
+  h2{font-size:20px; margin:0 0 12px; display:flex; align-items:center; gap:8px}
+
+  .card{
+    background:var(--bg-raise); border:1px solid var(--line); border-radius:12px;
+    box-shadow:var(--shadow); padding:16px;
+  }
+
+  table{width:100%; border-collapse:collapse; font-size:15px}
+  th, td{padding:8px 8px; text-align:left; border-bottom:1px solid var(--line); vertical-align:middle}
+  th{font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-soft); font-weight:700}
+  td.num, th.num{text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums}
+  tr:last-child td{border-bottom:none}
+  .table-scroll{overflow-x:auto}
+
+  input[type="number"], input[type="month"], input[type="text"]{
+    width:100%; max-width:130px; padding:7px 9px; font:inherit; font-size:15px;
+    color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:8px;
+    font-variant-numeric:tabular-nums;
+  }
+  input[type="month"]{max-width:180px}
+  input:invalid{border-color:var(--warn)}
+
+  .provider{font-size:12px; color:var(--ink-soft); display:block}
+  .unit{color:var(--ink-soft); font-size:13px; white-space:nowrap}
+
+  .btn{
+    display:inline-block; border:none; cursor:pointer; font:inherit; font-weight:700;
+    background:var(--tape); color:var(--tape-ink); padding:10px 18px; border-radius:10px;
+  }
+  .btn.secondary{background:transparent; color:var(--ink); border:1px solid var(--line)}
+  .btn.danger{background:transparent; color:var(--warn); border:1px solid var(--warn); padding:6px 10px; font-weight:600; font-size:14px}
+  .btn-row{display:flex; gap:10px; flex-wrap:wrap; margin-top:14px}
+
+  .total-line{font-size:22px; font-weight:800; margin-top:10px}
+  .total-line small{font-weight:400; color:var(--ink-soft); font-size:14px}
+  .group-row td{font-weight:700; background:color-mix(in srgb, var(--tape) 12%, transparent)}
+  .muted{color:var(--ink-soft)}
+  .hint{font-size:13px; color:var(--ink-soft); margin-top:8px}
+  .msg{margin-top:10px; font-weight:600}
+  .msg.ok{color:var(--ok)}
+  .msg.warn{color:var(--warn)}
+
+  footer{border-top:1px solid var(--line); margin-top:40px; padding:22px 0 30px; color:var(--ink-soft); font-size:14px}
+
+  @media print{
+    header, footer, .btn-row, #tariffs, #readings, #history, .hint, .no-print{display:none !important}
+    body{background:#fff; color:#000}
+    .card{border:none; box-shadow:none; padding:0}
+    #receipt{margin:0}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <a class="logo" href="index.html">Евроремонт<span>·</span>Пермь</a>
+    <span class="tape">ЖКХ‑калькулятор</span>
+  </div>
+</header>
+
+<main class="wrap">
+  <h1>Учёт услуг ЖКХ</h1>
+  <p class="lead">Водоканал, теплосети, электричество, газ и управляющая компания — введите показания счётчиков, и программа посчитает квитанцию за месяц. Тарифы и история сохраняются в вашем браузере.</p>
+
+  <section id="tariffs">
+    <h2>⚙️ Тарифы и параметры квартиры</h2>
+    <div class="card">
+      <div class="table-scroll">
+      <table>
+        <thead><tr><th>Услуга</th><th>Поставщик</th><th class="num">Тариф</th><th>Ед.</th></tr></thead>
+        <tbody id="tariffBody"></tbody>
+      </table>
+      </div>
+      <p class="hint">Тарифы указаны для примера — замените их на значения из вашей квитанции. Всё сохраняется автоматически.</p>
+      <p>
+        Площадь квартиры:
+        <input type="number" id="area" min="1" step="0.1" style="max-width:100px"> <span class="unit">м²</span>
+        <span class="muted">— для расчёта содержания жилья</span>
+      </p>
+    </div>
+  </section>
+
+  <section id="readings">
+    <h2>🧾 Показания за месяц</h2>
+    <div class="card">
+      <p>
+        Расчётный месяц:
+        <input type="month" id="month">
+      </p>
+      <div class="table-scroll">
+      <table>
+        <thead><tr><th>Счётчик</th><th class="num">Предыдущее</th><th class="num">Текущее</th><th class="num">Расход</th></tr></thead>
+        <tbody id="meterBody"></tbody>
+      </table>
+      </div>
+      <p>
+        Отопление за месяц (по прибору учёта или из квитанции):
+        <input type="number" id="heat" min="0" step="0.001" value="0"> <span class="unit">Гкал</span>
+      </p>
+      <p class="hint">Водоотведение считается автоматически: расход холодной + горячей воды. Предыдущие показания подставляются из последнего сохранённого месяца.</p>
+      <div class="btn-row">
+        <button class="btn" id="calcBtn">Рассчитать квитанцию</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="receipt" hidden>
+    <h2>💰 Квитанция</h2>
+    <div class="card">
+      <p id="receiptTitle" style="font-weight:700"></p>
+      <div class="table-scroll">
+      <table>
+        <thead><tr><th>Услуга</th><th class="num">Объём</th><th class="num">Тариф, ₽</th><th class="num">Сумма, ₽</th></tr></thead>
+        <tbody id="receiptBody"></tbody>
+      </table>
+      </div>
+      <p class="total-line">Итого: <span id="grandTotal"></span> ₽ <small>за месяц</small></p>
+      <div class="btn-row">
+        <button class="btn" id="saveBtn">Сохранить в историю</button>
+        <button class="btn secondary" id="printBtn">🖨️ Распечатать</button>
+      </div>
+      <p id="saveMsg" class="msg" hidden></p>
+    </div>
+  </section>
+
+  <section id="history">
+    <h2>📚 История платежей</h2>
+    <div class="card">
+      <div class="table-scroll">
+      <table>
+        <thead><tr><th>Месяц</th><th class="num">Водоканал</th><th class="num">Теплосети</th><th class="num">Прочее</th><th class="num">Итого, ₽</th><th></th></tr></thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+      </div>
+      <p id="historyEmpty" class="muted">Пока нет сохранённых месяцев.</p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    Данные хранятся только в вашем браузере (localStorage) и никуда не отправляются.<br>
+    <a href="index.html">← На главную</a>
+  </div>
+</footer>
+
+<script>
+'use strict';
+
+/* ---------- справочник услуг ---------- */
+const METERS = [
+  {id:'cold',  name:'Холодная вода',  provider:'Водоканал',  unit:'м³',    step:'0.001'},
+  {id:'hot',   name:'Горячая вода',   provider:'Теплосети',  unit:'м³',    step:'0.001'},
+  {id:'elec',  name:'Электроэнергия', provider:'Энергосбыт', unit:'кВт·ч', step:'1'},
+  {id:'gas',   name:'Газ',            provider:'Газпром',    unit:'м³',    step:'0.01'},
+];
+
+const TARIFF_DEFS = [
+  {id:'cold',    name:'Холодная вода',   provider:'Водоканал',  unit:'₽/м³',    def:45.60},
+  {id:'sewer',   name:'Водоотведение',   provider:'Водоканал',  unit:'₽/м³',    def:32.80},
+  {id:'hot',     name:'Горячая вода',    provider:'Теплосети',  unit:'₽/м³',    def:215.40},
+  {id:'heat',    name:'Отопление',       provider:'Теплосети',  unit:'₽/Гкал',  def:2450.00},
+  {id:'elec',    name:'Электроэнергия',  provider:'Энергосбыт', unit:'₽/кВт·ч', def:4.85},
+  {id:'gas',     name:'Газ',             provider:'Газпром',    unit:'₽/м³',    def:7.60},
+  {id:'trash',   name:'Вывоз мусора',    provider:'Регоператор ТКО', unit:'₽/мес', def:120.00},
+  {id:'service', name:'Содержание жилья',provider:'Управляющая компания', unit:'₽/м²', def:28.50},
+];
+
+const LS_KEY = 'zhkh-app-v1';
+
+/* ---------- состояние ---------- */
+function loadState(){
+  try{
+    const s = JSON.parse(localStorage.getItem(LS_KEY));
+    if (s && typeof s === 'object') return s;
+  }catch(e){}
+  return {tariffs:{}, area:54, history:[]};
+}
+const state = loadState();
+for (const t of TARIFF_DEFS){
+  if (typeof state.tariffs[t.id] !== 'number') state.tariffs[t.id] = t.def;
+}
+if (!Array.isArray(state.history)) state.history = [];
+
+function persist(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+
+const fmt = n => n.toLocaleString('ru-RU', {minimumFractionDigits:2, maximumFractionDigits:2});
+const monthName = m => {
+  const [y, mo] = m.split('-').map(Number);
+  return new Date(y, mo - 1, 1).toLocaleDateString('ru-RU', {month:'long', year:'numeric'});
+};
+
+/* ---------- тарифы ---------- */
+const tariffBody = document.getElementById('tariffBody');
+for (const t of TARIFF_DEFS){
+  const tr = document.createElement('tr');
+  tr.innerHTML =
+    `<td>${t.name}</td><td class="muted">${t.provider}</td>` +
+    `<td class="num"><input type="number" min="0" step="0.01" data-tariff="${t.id}"></td>` +
+    `<td class="unit">${t.unit}</td>`;
+  tariffBody.appendChild(tr);
+}
+document.querySelectorAll('[data-tariff]').forEach(inp => {
+  inp.value = state.tariffs[inp.dataset.tariff];
+  inp.addEventListener('change', () => {
+    const v = parseFloat(inp.value);
+    if (isFinite(v) && v >= 0){ state.tariffs[inp.dataset.tariff] = v; persist(); }
+    else inp.value = state.tariffs[inp.dataset.tariff];
+  });
+});
+
+const areaInp = document.getElementById('area');
+areaInp.value = state.area;
+areaInp.addEventListener('change', () => {
+  const v = parseFloat(areaInp.value);
+  if (isFinite(v) && v > 0){ state.area = v; persist(); }
+  else areaInp.value = state.area;
+});
+
+/* ---------- показания ---------- */
+const meterBody = document.getElementById('meterBody');
+for (const m of METERS){
+  const tr = document.createElement('tr');
+  tr.innerHTML =
+    `<td>${m.name} <span class="provider">${m.provider}, ${m.unit}</span></td>` +
+    `<td class="num"><input type="number" min="0" step="${m.step}" data-prev="${m.id}" value="0"></td>` +
+    `<td class="num"><input type="number" min="0" step="${m.step}" data-curr="${m.id}" value="0"></td>` +
+    `<td class="num" data-use="${m.id}">0</td>`;
+  meterBody.appendChild(tr);
+}
+
+function readMeter(id){
+  const prev = parseFloat(document.querySelector(`[data-prev="${id}"]`).value) || 0;
+  const curr = parseFloat(document.querySelector(`[data-curr="${id}"]`).value) || 0;
+  return {prev, curr, use: Math.max(0, curr - prev)};
+}
+
+function refreshUsage(){
+  for (const m of METERS){
+    const {prev, curr, use} = readMeter(m.id);
+    const cell = document.querySelector(`[data-use="${m.id}"]`);
+    cell.textContent = fmt(use);
+    cell.style.color = curr < prev ? 'var(--warn)' : '';
+  }
+}
+meterBody.addEventListener('input', refreshUsage);
+
+/* подставить предыдущие показания из последнего сохранённого месяца */
+function prefillFromHistory(){
+  const last = state.history[state.history.length - 1];
+  if (!last || !last.readings) return;
+  for (const m of METERS){
+    const r = last.readings[m.id];
+    if (r){
+      document.querySelector(`[data-prev="${m.id}"]`).value = r.curr;
+      document.querySelector(`[data-curr="${m.id}"]`).value = r.curr;
+    }
+  }
+  refreshUsage();
+}
+
+/* месяц по умолчанию — текущий */
+const monthInp = document.getElementById('month');
+{
+  const d = new Date();
+  monthInp.value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+/* ---------- расчёт ---------- */
+let currentCalc = null;
+
+function calculate(){
+  const t = state.tariffs;
+  const cold = readMeter('cold'), hot = readMeter('hot'),
+        elec = readMeter('elec'), gas = readMeter('gas');
+  const heat = Math.max(0, parseFloat(document.getElementById('heat').value) || 0);
+  const sewerUse = cold.use + hot.use;
+
+  const items = [
+    {name:'Холодная вода',    provider:'Водоканал',  vol:cold.use,  unit:'м³',    tariff:t.cold},
+    {name:'Водоотведение',    provider:'Водоканал',  vol:sewerUse,  unit:'м³',    tariff:t.sewer},
+    {name:'Горячая вода',     provider:'Теплосети',  vol:hot.use,   unit:'м³',    tariff:t.hot},
+    {name:'Отопление',        provider:'Теплосети',  vol:heat,      unit:'Гкал',  tariff:t.heat},
+    {name:'Электроэнергия',   provider:'Энергосбыт', vol:elec.use,  unit:'кВт·ч', tariff:t.elec},
+    {name:'Газ',              provider:'Газпром',    vol:gas.use,   unit:'м³',    tariff:t.gas},
+    {name:'Вывоз мусора',     provider:'Прочее',     vol:1,         unit:'мес',   tariff:t.trash},
+    {name:'Содержание жилья', provider:'Прочее',     vol:state.area,unit:'м²',    tariff:t.service},
+  ].map(i => ({...i, sum: i.vol * i.tariff}));
+
+  const total = items.reduce((s, i) => s + i.sum, 0);
+  currentCalc = {
+    month: monthInp.value,
+    items, total,
+    readings:{cold, hot, elec, gas, heat},
+  };
+  renderReceipt();
+}
+
+function renderReceipt(){
+  const {month, items, total} = currentCalc;
+  document.getElementById('receiptTitle').textContent =
+    'Квитанция за ' + (month ? monthName(month) : 'месяц');
+
+  const body = document.getElementById('receiptBody');
+  body.innerHTML = '';
+  let lastProvider = null;
+  for (const i of items){
+    if (i.provider !== lastProvider){
+      lastProvider = i.provider;
+      const providerSum = items.filter(x => x.provider === i.provider).reduce((s, x) => s + x.sum, 0);
+      const g = document.createElement('tr');
+      g.className = 'group-row';
+      g.innerHTML = `<td colspan="3">${i.provider}</td><td class="num">${fmt(providerSum)}</td>`;
+      body.appendChild(g);
+    }
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td>${i.name}</td>` +
+      `<td class="num">${fmt(i.vol)} <span class="unit">${i.unit}</span></td>` +
+      `<td class="num">${fmt(i.tariff)}</td>` +
+      `<td class="num">${fmt(i.sum)}</td>`;
+    body.appendChild(tr);
+  }
+  document.getElementById('grandTotal').textContent = fmt(total);
+  document.getElementById('saveMsg').hidden = true;
+  document.getElementById('receipt').hidden = false;
+  document.getElementById('receipt').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+document.getElementById('calcBtn').addEventListener('click', calculate);
+document.getElementById('printBtn').addEventListener('click', () => window.print());
+
+/* ---------- история ---------- */
+function providerSum(entry, provider){
+  return entry.items.filter(i => i.provider === provider).reduce((s, i) => s + i.sum, 0);
+}
+
+function renderHistory(){
+  const body = document.getElementById('historyBody');
+  body.innerHTML = '';
+  const sorted = [...state.history].sort((a, b) => a.month.localeCompare(b.month));
+  for (const e of sorted){
+    const other = e.total - providerSum(e, 'Водоканал') - providerSum(e, 'Теплосети');
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td>${monthName(e.month)}</td>` +
+      `<td class="num">${fmt(providerSum(e, 'Водоканал'))}</td>` +
+      `<td class="num">${fmt(providerSum(e, 'Теплосети'))}</td>` +
+      `<td class="num">${fmt(other)}</td>` +
+      `<td class="num" style="font-weight:700">${fmt(e.total)}</td>` +
+      `<td><button class="btn danger" data-del="${e.month}">Удалить</button></td>`;
+    body.appendChild(tr);
+  }
+  document.getElementById('historyEmpty').hidden = sorted.length > 0;
+}
+
+document.getElementById('historyBody').addEventListener('click', e => {
+  const btn = e.target.closest('[data-del]');
+  if (!btn) return;
+  if (!confirm('Удалить запись за ' + monthName(btn.dataset.del) + '?')) return;
+  state.history = state.history.filter(h => h.month !== btn.dataset.del);
+  persist();
+  renderHistory();
+});
+
+document.getElementById('saveBtn').addEventListener('click', () => {
+  if (!currentCalc) return;
+  const msg = document.getElementById('saveMsg');
+  if (!currentCalc.month){
+    msg.textContent = 'Укажите расчётный месяц перед сохранением.';
+    msg.className = 'msg warn'; msg.hidden = false;
+    return;
+  }
+  const replaced = state.history.some(h => h.month === currentCalc.month);
+  state.history = state.history.filter(h => h.month !== currentCalc.month);
+  state.history.push(currentCalc);
+  state.history.sort((a, b) => a.month.localeCompare(b.month));
+  persist();
+  renderHistory();
+  msg.textContent = replaced
+    ? 'Запись за ' + monthName(currentCalc.month) + ' обновлена.'
+    : 'Сохранено: ' + monthName(currentCalc.month) + '.';
+  msg.className = 'msg ok'; msg.hidden = false;
+});
+
+/* ---------- старт ---------- */
+prefillFromHistory();
+renderHistory();
+refreshUsage();
+</script>
+</body>
+</html>
