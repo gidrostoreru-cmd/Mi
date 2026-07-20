@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="РКЦ «Кедровый» — расчётная система ЖКХ: начисления по воде, водоотведению, отоплению и газу, пени по ст. 155 ЖК РФ, субсидии, карточки абонентов, платежи.">
+<title>РКЦ «Кедровый» — расчётная система ЖКХ</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232a78d6'/%3E%3Ctext x='16' y='22' font-size='17' font-weight='800' font-family='system-ui' text-anchor='middle' fill='%23fff'%3E%E2%82%BD%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar" id="topbar" hidden>
+  <div class="topbar-in">
+    <a class="brand" href="#/">
+      <span class="mark">₽</span>
+      <span>РКЦ «Кедровый»&nbsp;<small>· расчётная система ЖКХ</small></span>
+    </a>
+    <nav class="main" id="mainNav" aria-label="Основная навигация">
+      <a href="#/" data-route="dash">Главная</a>
+      <a href="#/abonents" data-route="abonents">Абоненты</a>
+      <a href="#/billing" data-route="billing">Начисления</a>
+      <a href="#/payments" data-route="payments">Платежи</a>
+      <a href="#/reports" data-route="reports">Отчёты</a>
+      <a href="#/admin" data-route="admin">Админ</a>
+      <a href="#/settings" data-route="settings">Настройки</a>
+    </nav>
+  </div>
+</header>
+
+<main id="view" aria-live="polite"></main>
+
+<div class="toast" id="toast" role="status"></div>
+<div id="printArea"></div>
+
+<script src="billing.js"></script>
+<script src="xlsx.js"></script>
+<script src="db.js"></script>
+<script src="seed.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
