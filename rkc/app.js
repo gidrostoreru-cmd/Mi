@@ -795,6 +795,15 @@ function renderBilling() {
       </div>
     </div>
 
+    <h2 class="eyebrow">Выгрузка квитанций</h2>
+    <div class="card pad toolbar">
+      <select id="exportYm" ${closed.length ? '' : 'disabled'}>
+        ${closed.map(ym => `<option value="${ym}">${ymName(ym)}</option>`).join('') || '<option>нет закрытых периодов</option>'}
+      </select>
+      <button class="btn secondary" id="exportXlsx" ${closed.length ? '' : 'disabled'}>⬇ Квитанции в Excel по всем абонентам</button>
+      <span class="muted small" id="exportMsg"></span>
+    </div>
+
     <h2 class="eyebrow">Закрытые периоды</h2>
     <div class="card table-scroll">
       <table>
@@ -815,6 +824,47 @@ function renderBilling() {
       по ч. 14 ст. 155 ЖК РФ и показываются в карточке абонента и квитанции.</p>`;
 
   $('#closeBtn').onclick = () => closePeriod(period);
+  if (closed.length) $('#exportXlsx').onclick = () => exportReceipts($('#exportYm').value);
+}
+
+/* Выгрузка реестра квитанций за месяц в Excel: строка на каждого абонента. */
+async function exportReceipts(ym) {
+  const msg = $('#exportMsg');
+  msg.textContent = 'Формируем файл…';
+  const charges = await DB.byIndex('charges', 'ym', ym);
+  const byAid = new Map();
+  for (const c of charges) {
+    let agg = byAid.get(c.aid);
+    if (!agg) byAid.set(c.aid, agg = { total: 0 });
+    agg[c.service] = Billing.round2((agg[c.service] || 0) + c.sum);
+    agg.total = Billing.round2(agg.total + c.sum);
+  }
+
+  const now = new Date();
+  const svcCols = Billing.SERVICES.map(s => s.key);
+  const header = ['Лицевой счёт', 'ФИО', 'Адрес', 'Площадь, м²', 'Проживает',
+    ...Billing.SERVICES.map(s => s.name + ', ₽'), 'Субсидия, ₽', `Итого за ${ymName(ym)}, ₽`,
+    'Долг всего, ₽', 'Пени (ст. 155 ЖК РФ), ₽', 'Всего к оплате, ₽'];
+  const rows = [header];
+
+  for (const ab of App.abonents) {
+    const agg = byAid.get(ab.id);
+    if (!agg) continue;
+    const debt = Math.max(0, ab.balance);
+    const pen = Billing.calcPenaltyTotal(ab.debtByMonth, now, App.settings.keyRate);
+    rows.push([
+      ab.account, ab.fio, ab.address, ab.area, ab.residents,
+      ...svcCols.map(k => agg[k] || 0),
+      -(agg.subsidy || 0), agg.total, debt, pen, Billing.round2(debt + pen),
+    ]);
+  }
+
+  const nCols = header.length;
+  const moneyCols = new Set(Array.from({ length: nCols - 5 }, (_, i) => i + 5));
+  const widths = [13, 34, 34, 11, 10, ...Array(nCols - 5).fill(14)];
+  const size = XLSXMini.download(`kvitancii-${ym}.xlsx`, 'Квитанции ' + ym, rows, { headerRows: 1, widths, moneyCols });
+  msg.textContent = `Готово: ${(rows.length - 1).toLocaleString('ru-RU')} квитанций, ${(size / 1048576).toFixed(1)} МБ`;
+  toast('Файл квитанций сформирован');
 }
 
 async function closePeriod(ym) {
