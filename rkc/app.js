@@ -716,8 +716,9 @@ async function renderAbonent(id) {
         <h2 class="eyebrow">Платежи</h2>
         <div class="card table-scroll" style="max-height:420px; overflow-y:auto">
           <table>
-            <thead><tr><th>Дата</th><th class="num">Сумма</th></tr></thead>
-            <tbody>${payments.map(p => `<tr><td class="num">${p.date}</td><td class="num money-pos">${fmtMoney(p.sum)} ₽</td></tr>`).join('') || '<tr><td colspan="2" class="empty">Платежей пока нет</td></tr>'}</tbody>
+            <thead><tr><th>Дата</th><th class="num">Сумма</th><th></th></tr></thead>
+            <tbody>${payments.map(p => `<tr><td class="num">${p.date}</td><td class="num money-pos">${fmtMoney(p.sum)} ₽</td>
+              <td><button class="btn danger sm" data-delpay="${p.id}" title="Сторнировать ошибочный платёж">Сторно</button></td></tr>`).join('') || '<tr><td colspan="3" class="empty">Платежей пока нет</td></tr>'}</tbody>
           </table>
         </div>
       </section>
@@ -770,6 +771,16 @@ async function renderAbonent(id) {
     renderAbonent(id);
   };
 
+  const byPayId = new Map(payments.map(p => [String(p.id), p]));
+  document.querySelectorAll('[data-delpay]').forEach(btn => btn.onclick = async () => {
+    const p = byPayId.get(btn.dataset.delpay);
+    if (!p) return;
+    if (!confirm(`Сторнировать платёж ${fmtMoney(p.sum)} ₽ от ${p.date}? Лицевой счёт будет пересчитан.`)) return;
+    await deletePayment(p);
+    toast('Платёж сторнирован, счёт пересчитан');
+    renderAbonent(id);
+  });
+
   const instForm = $('#instForm');
   if (instForm) instForm.onsubmit = async e => {
     e.preventDefault();
@@ -806,6 +817,55 @@ async function renderAbonent(id) {
   };
 
   $('#receiptBtn').onclick = () => printReceipt(ab, historyByYm, histMonths);
+}
+
+/* Полный пересчёт лицевого счёта по истории: начисления и оставшиеся платежи
+   проигрываются в хронологическом порядке с разнесением FIFO. Используется
+   при сторнировании платежа, чтобы долги по месяцам восстановились корректно. */
+async function rebuildAbonent(ab) {
+  const [charges, payments] = await Promise.all([
+    DB.byIndex('charges', 'aid', ab.id),
+    DB.byIndex('payments', 'aid', ab.id),
+  ]);
+  const netByYm = {};
+  for (const c of charges) netByYm[c.ym] = Billing.round2((netByYm[c.ym] || 0) + c.sum);
+
+  const events = [];
+  for (const ym of Object.keys(netByYm)) events.push({ date: nextYm(ym) + '-01', type: 'charge', ym, sum: netByYm[ym] });
+  for (const p of payments) events.push({ date: p.date, type: 'pay', sum: p.sum });
+  events.sort((a, b) => a.date.localeCompare(b.date) || (a.type === 'charge' ? -1 : 1));
+
+  let balance = 0, debtByMonth = {};
+  for (const e of events) {
+    if (e.type === 'charge') {
+      if (balance < 0) { // аванс закрывает начисление
+        const rest = Billing.round2(e.sum - Math.min(-balance, e.sum));
+        if (rest > 0) debtByMonth[e.ym] = rest;
+      } else if (e.sum > 0) debtByMonth[e.ym] = e.sum;
+      balance = Billing.round2(balance + e.sum);
+    } else {
+      const alloc = Billing.allocatePayment(debtByMonth, e.sum);
+      debtByMonth = alloc.debtByMonth;
+      balance = Billing.round2(balance - e.sum);
+    }
+  }
+  ab.debtByMonth = debtByMonth;
+  ab.balance = balance;
+  await DB.put('abonents', ab);
+}
+
+/* Сторнирование ошибочного платежа: удаляет запись, корректирует сводку
+   и пересчитывает лицевой счёт абонента. */
+async function deletePayment(p) {
+  await DB.del('payments', p.id);
+  const ym = p.date.slice(0, 7);
+  if (App.stats.byYm[ym]) {
+    App.stats.byYm[ym].paid = Billing.round2(Math.max(0, (App.stats.byYm[ym].paid || 0) - p.sum));
+    await DB.kvSet('stats', App.stats);
+  }
+  const ab = App.byId.get(p.aid);
+  if (ab) await rebuildAbonent(ab);
+  return ab;
 }
 
 async function takePayment(ab, sum) {
@@ -1131,15 +1191,16 @@ async function renderPayments() {
     <h2 class="eyebrow">Последние платежи</h2>
     <div class="card table-scroll">
       <table>
-        <thead><tr><th>Дата</th><th>Лицевой счёт</th><th>Абонент</th><th class="num">Сумма, ₽</th></tr></thead>
+        <thead><tr><th>Дата</th><th>Лицевой счёт</th><th>Абонент</th><th class="num">Сумма, ₽</th><th></th></tr></thead>
         <tbody>
           ${recent.map(p => {
             const ab = App.byId.get(p.aid);
             return `<tr><td class="num">${p.date}</td>
               <td>${ab ? `<a href="#/abonent/${ab.id}" class="num">${esc(ab.account)}</a>` : p.aid}</td>
               <td>${ab ? esc(ab.fio) : '—'}</td>
-              <td class="num money-pos">${fmtMoney(p.sum)}</td></tr>`;
-          }).join('') || '<tr><td colspan="4" class="empty">Платежей пока нет</td></tr>'}
+              <td class="num money-pos">${fmtMoney(p.sum)}</td>
+              <td><button class="btn danger sm" data-delpay="${p.id}" title="Сторнировать ошибочный платёж">Сторно</button></td></tr>`;
+          }).join('') || '<tr><td colspan="5" class="empty">Платежей пока нет</td></tr>'}
         </tbody>
       </table>
     </div>`;
@@ -1169,6 +1230,17 @@ async function renderPayments() {
     toast(`Платёж ${fmtMoney(sum)} ₽ принят: ${selected.account}`);
     renderPayments();
   };
+
+  const byPayId = new Map(recent.map(p => [String(p.id), p]));
+  document.querySelectorAll('[data-delpay]').forEach(btn => btn.onclick = async () => {
+    const p = byPayId.get(btn.dataset.delpay);
+    if (!p) return;
+    const ab = App.byId.get(p.aid);
+    if (!confirm(`Сторнировать платёж ${fmtMoney(p.sum)} ₽ от ${p.date}${ab ? ' (' + ab.account + ', ' + ab.fio + ')' : ''}? Лицевой счёт будет пересчитан.`)) return;
+    await deletePayment(p);
+    toast('Платёж сторнирован, счёт пересчитан');
+    renderPayments();
+  });
 }
 
 /* ---------- отчёты: улицы и дома ---------- */
