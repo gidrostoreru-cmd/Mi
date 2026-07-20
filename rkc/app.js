@@ -33,6 +33,9 @@ const svcByKey = key => Billing.SERVICES.find(s => s.key === key);
 const SVC_COLORS = { cold: 'var(--svc-cold)', hot: 'var(--svc-hot)', sewer: 'var(--svc-sewer)', heat: 'var(--svc-heat)', gas: 'var(--svc-gas)', elec: 'var(--svc-elec)', tko: 'var(--svc-tko)' };
 const enabledServices = () => Billing.SERVICES.filter(s => !App.settings.enabledServices || App.settings.enabledServices[s.key] !== false);
 
+/* Пени абонента: при действующей рассрочке пени на долг не начисляются. */
+const penaltyOf = (ab, now) => ab.installment ? 0 : Billing.calcPenaltyTotal(ab.debtByMonth, now, App.settings.keyRate);
+
 /* Эффективные настройки абонента: тарифный план поверх базовых тарифов. */
 const planById = id => App.plans.find(p => p.id === id);
 function effSettings(ab) {
@@ -64,12 +67,69 @@ function totals() {
     if (ab.balance > 0.005) { debt += ab.balance; debtors++; }
     else if (ab.balance < -0.005) advance += -ab.balance;
     if (ab.subsidyOn) subsidized++;
-    penalty += Billing.calcPenaltyTotal(ab.debtByMonth, now, App.settings.keyRate);
+    penalty += penaltyOf(ab, now);
   }
   return { debt: Billing.round2(debt), debtors, penalty: Billing.round2(penalty), subsidized, advance: Billing.round2(advance) };
 }
 
 /* ---------- инициализация ---------- */
+/* ---------- вход по паролю ---------- */
+async function sha256(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function renderLock() {
+  $('#topbar').hidden = true;
+  $('#view').innerHTML = `
+    <div class="card welcome">
+      <div class="mark">🔒</div>
+      <h1>РКЦ «Кедровый»</h1>
+      <p>Система защищена паролем. Введите пароль для входа.</p>
+      <form id="lockForm" class="toolbar" style="justify-content:center">
+        <input type="password" name="pw" placeholder="Пароль" autocomplete="current-password" required style="min-width:220px" autofocus>
+        <button class="btn">Войти</button>
+      </form>
+      <p class="muted small" id="lockErr" style="margin-top:12px"></p>
+    </div>`;
+  $('#lockForm').onsubmit = async e => {
+    e.preventDefault();
+    const hash = await sha256(new FormData(e.target).get('pw'));
+    if (hash === App.security.hash) {
+      sessionStorage.setItem('rkc-auth', hash);
+      location.reload();
+    } else {
+      $('#lockErr').textContent = 'Неверный пароль. Попробуйте ещё раз.';
+      e.target.reset();
+    }
+  };
+}
+
+function renderAdminGate() {
+  $('#view').innerHTML = `
+    <div class="card welcome">
+      <div class="mark">🔒</div>
+      <h1>Раздел «Админ»</h1>
+      <p>Для входа в администрирование введите пароль ещё раз.</p>
+      <form id="gateForm" class="toolbar" style="justify-content:center">
+        <input type="password" name="pw" placeholder="Пароль" required style="min-width:220px" autofocus>
+        <button class="btn">Открыть</button>
+      </form>
+      <p class="muted small" id="gateErr" style="margin-top:12px"></p>
+    </div>`;
+  $('#gateForm').onsubmit = async e => {
+    e.preventDefault();
+    const hash = await sha256(new FormData(e.target).get('pw'));
+    if (hash === App.security.hash) {
+      sessionStorage.setItem('rkc-admin', hash);
+      renderAdmin();
+    } else {
+      $('#gateErr').textContent = 'Неверный пароль.';
+      e.target.reset();
+    }
+  };
+}
+
 /* Дополнение баз, созданных прошлыми версиями: новые услуги и поля. */
 function migrate() {
   const d = Billing.DEFAULT_SETTINGS, s = App.settings;
@@ -85,6 +145,11 @@ function migrate() {
 async function init() {
   await DB.open();
   App.settings = await DB.kvGet('settings', null);
+  App.security = await DB.kvGet('security', null);
+  if (App.security && App.security.hash && sessionStorage.getItem('rkc-auth') !== App.security.hash) {
+    renderLock();
+    return;
+  }
   if (!App.settings) { renderWelcome(); return; }
   App.closedMonths = await DB.kvGet('closedMonths', []);
   App.stats = await DB.kvGet('stats', { byYm: {} });
@@ -160,7 +225,12 @@ function render() {
   if (route === 'service') return renderService(parts[1]);
   if (route === 'billing') return renderBilling();
   if (route === 'payments') return renderPayments();
-  if (route === 'admin') return renderAdmin();
+  if (route === 'reports') return renderReports();
+  if (route === 'admin') {
+    if (App.security && App.security.hash && App.security.adminLock && sessionStorage.getItem('rkc-admin') !== App.security.hash)
+      return renderAdminGate();
+    return renderAdmin();
+  }
   if (route === 'settings') return renderSettings();
   renderDash();
 }
@@ -281,8 +351,9 @@ const AbList = { page: 0, per: 50 };
 function abonentBadges(ab) {
   const out = [];
   const now = new Date();
-  if (ab.balance > 0.005) {
-    const pen = Billing.calcPenaltyTotal(ab.debtByMonth, now, App.settings.keyRate);
+  if (ab.installment && ab.balance > 0.005) out.push('<span class="badge sub">Рассрочка</span>');
+  else if (ab.balance > 0.005) {
+    const pen = penaltyOf(ab, now);
     out.push(pen > 0 ? '<span class="badge debt">Просрочка</span>' : '<span class="badge overdue">Долг</span>');
   } else if (ab.balance < -0.005) out.push('<span class="badge ok">Аванс</span>');
   else out.push('<span class="badge ok">Оплачено</span>');
@@ -296,7 +367,10 @@ function renderAbonents() {
   $('#view').innerHTML = `
     <div class="page-head">
       <div><h1>Абоненты</h1><div class="sub">${App.abonents.length.toLocaleString('ru-RU')} лицевых счетов</div></div>
-      <button class="btn" id="addAb">+ Новый абонент</button>
+      <div class="toolbar">
+        <button class="btn secondary" id="noticesBtn">🖨 Уведомления должникам</button>
+        <button class="btn" id="addAb">+ Новый абонент</button>
+      </div>
     </div>
     <div class="card pad">
       <div class="toolbar">
@@ -328,7 +402,7 @@ function renderAbonents() {
     if (query) list = list.filter(a => a.search.includes(query));
     if (street) list = list.filter(a => a.street === street);
     if (filter === 'debt') list = list.filter(a => a.balance > 0.005);
-    if (filter === 'overdue') list = list.filter(a => a.balance > 0.005 && Billing.calcPenaltyTotal(a.debtByMonth, now, App.settings.keyRate) > 0);
+    if (filter === 'overdue') list = list.filter(a => a.balance > 0.005 && penaltyOf(a, now) > 0);
     if (filter === 'subsidy') list = list.filter(a => a.subsidyOn);
     if (filter === 'nometer') list = list.filter(a => !a.meters.cold.has || !a.meters.hot.has);
 
@@ -360,8 +434,57 @@ function renderAbonents() {
 
   ['abQ', 'abFilter', 'abStreet'].forEach(id => $('#' + id).addEventListener('input', () => { AbList.page = 0; refresh(); }));
   $('#addAb').onclick = showNewAbonentDialog;
+  $('#noticesBtn').onclick = () => {
+    const query = $('#abQ').value.trim().toLowerCase();
+    const street = $('#abStreet').value;
+    let list = App.abonents.filter(a => a.balance > 0.005 && !a.installment);
+    if (query) list = list.filter(a => a.search.includes(query));
+    if (street) list = list.filter(a => a.street === street);
+    printNotices(list);
+  };
   refresh();
   sessionStorage.removeItem('abQuery');
+}
+
+/* Печать уведомлений (претензий) о задолженности: страница на каждого должника.
+   Учитывает текущий поиск и фильтр улицы; абоненты с рассрочкой не включаются. */
+function printNotices(list) {
+  if (!list.length) { toast('Должников по текущему фильтру нет'); return; }
+  if (list.length > 400 && !confirm(`Будет напечатано ${list.length.toLocaleString('ru-RU')} уведомлений (страниц). Продолжить?`)) return;
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('ru-RU');
+  $('#printArea').innerHTML = list.map(ab => {
+    const months = Object.keys(ab.debtByMonth).sort();
+    const pen = penaltyOf(ab, now);
+    return `
+    <div class="notice">
+      <h2>Уведомление о задолженности за жилищно-коммунальные услуги</h2>
+      <p>РКЦ «Кедровый» · ${dateStr}<br>
+         Кому: <b>${esc(ab.fio)}</b> · ${esc(ab.address)} · лицевой счёт <b>${esc(ab.account)}</b></p>
+      <table>
+        <thead><tr><th>Период</th><th class="num">Долг, ₽</th><th class="num">Дней просрочки</th><th class="num">Пени, ₽</th></tr></thead>
+        <tbody>
+          ${months.map(ym => {
+            const amount = ab.debtByMonth[ym];
+            const days = Math.max(0, Math.floor((now - Billing.dueDate(ym)) / 86400000));
+            return `<tr><td>${ymName(ym)}</td><td class="num">${fmtMoney(amount)}</td>
+              <td class="num">${days}</td><td class="num">${fmtMoney(Billing.calcPenalty(amount, ym, now, App.settings.keyRate))}</td></tr>`;
+          }).join('')}
+          <tr><td><b>Итого</b></td><td class="num"><b>${fmtMoney(ab.balance)}</b></td><td></td><td class="num"><b>${fmtMoney(pen)}</b></td></tr>
+        </tbody>
+      </table>
+      <p><b>Всего к оплате: ${fmtMoney(Billing.round2(ab.balance + pen))} ₽.</b></p>
+      <p>В соответствии со ст. 155 Жилищного кодекса РФ плата за жилое помещение и коммунальные услуги
+         вносится ежемесячно до 10-го числа месяца, следующего за истёкшим. На сумму задолженности
+         начисляются пени (ч. 14 ст. 155 ЖК РФ, ключевая ставка ${App.settings.keyRate}% годовых).
+         Просим погасить задолженность в течение 30 дней с даты настоящего уведомления.
+         При непогашении долга РКЦ вправе обратиться в суд, а также ограничить предоставление
+         коммунальных услуг в порядке, предусмотренном ПП РФ №354.</p>
+      <p>Оформить рассрочку или уточнить расчёт можно в РКЦ «Кедровый».</p>
+    </div>`;
+  }).join('');
+  window.print();
+  toast(`Подготовлено уведомлений: ${list.length.toLocaleString('ru-RU')}`);
 }
 
 function showNewAbonentDialog() {
@@ -437,7 +560,7 @@ async function renderAbonent(id) {
   ]);
   charges.sort((a, b) => b.ym.localeCompare(a.ym) || a.id - b.id);
   payments.sort((a, b) => b.date.localeCompare(a.date));
-  const penalty = Billing.calcPenaltyTotal(ab.debtByMonth, now, App.settings.keyRate);
+  const penalty = penaltyOf(ab, now);
 
   // последние переданные показания для подстановки "предыдущих"
   const allReadings = [];
@@ -455,7 +578,7 @@ async function renderAbonent(id) {
   const debtRows = Object.keys(ab.debtByMonth).sort().map(ym => {
     const amount = ab.debtByMonth[ym];
     const days = Math.max(0, Math.floor((now - Billing.dueDate(ym)) / 86400000));
-    const pen = Billing.calcPenalty(amount, ym, now, App.settings.keyRate);
+    const pen = ab.installment ? 0 : Billing.calcPenalty(amount, ym, now, App.settings.keyRate);
     return `<tr><td>${ymName(ym)}</td><td class="num">${fmtMoney(amount)} ₽</td>
       <td class="num">${days}</td><td class="num ${pen > 0 ? 'money-neg' : ''}">${fmtMoney(pen)} ₽</td></tr>`;
   }).join('');
@@ -541,6 +664,35 @@ async function renderAbonent(id) {
       </section>
     </div>
 
+    ${ab.installment ? `
+    <h2 class="eyebrow">Рассрочка долга</h2>
+    <div class="card pad">
+      <p class="small">Соглашение от ${ab.installment.createdAt}: долг <b class="num">${fmtMoney(ab.installment.total)} ₽</b>
+        на ${ab.installment.schedule.length} мес. Пени на реструктуризированный долг не начисляются, пока действует рассрочка.</p>
+      <div class="table-scroll" style="margin-top:8px">
+        <table>
+          <thead><tr><th>Платёж</th><th>Оплатить до</th><th class="num">Сумма, ₽</th></tr></thead>
+          <tbody>${ab.installment.schedule.map((r, i) => {
+            const due = Billing.dueDate(r.ym);
+            return `<tr><td>${i + 1} — ${ymName(r.ym)}</td>
+              <td class="num ${due < now ? 'money-neg' : ''}">${due.toLocaleDateString('ru-RU')}</td>
+              <td class="num">${fmtMoney(r.sum)}</td></tr>`;
+          }).join('')}</tbody>
+        </table>
+      </div>
+      <div class="toolbar" style="margin-top:12px">
+        <button class="btn danger sm" id="cancelInst">Расторгнуть рассрочку</button>
+        <span class="muted small">При расторжении пени снова начисляются по ст. 155 ЖК РФ.</span>
+      </div>
+    </div>` : ab.balance > 0.005 ? `
+    <h2 class="eyebrow">Рассрочка долга</h2>
+    <form class="card pad toolbar" id="instForm">
+      <span class="small">Оформить рассрочку долга <b class="num">${fmtMoney(ab.balance)} ₽</b> на</span>
+      <select name="months">${[3, 6, 12, 18, 24].map(m => `<option value="${m}"${m === 6 ? ' selected' : ''}>${m} мес.</option>`).join('')}</select>
+      <button class="btn secondary sm">Оформить</button>
+      <span class="muted small">Пени замораживаются, долг гасится равными долями начиная со следующего месяца.</span>
+    </form>` : ''}
+
     <h2 class="eyebrow">Задолженность по месяцам и пени</h2>
     <div class="card table-scroll">
       <table>
@@ -618,6 +770,29 @@ async function renderAbonent(id) {
     renderAbonent(id);
   };
 
+  const instForm = $('#instForm');
+  if (instForm) instForm.onsubmit = async e => {
+    e.preventDefault();
+    const months = Number(new FormData(instForm).get('months'));
+    if (!confirm(`Оформить рассрочку долга ${fmtMoney(ab.balance)} ₽ на ${months} мес.?`)) return;
+    ab.installment = {
+      total: ab.balance,
+      createdAt: todayISO(),
+      schedule: Billing.buildInstallment(ab.balance, months, currentPeriod()),
+    };
+    await DB.put('abonents', ab);
+    toast('Рассрочка оформлена');
+    renderAbonent(id);
+  };
+  const cancelInst = $('#cancelInst');
+  if (cancelInst) cancelInst.onclick = async () => {
+    if (!confirm('Расторгнуть соглашение о рассрочке? Пени снова будут начисляться.')) return;
+    delete ab.installment;
+    await DB.put('abonents', ab);
+    toast('Рассрочка расторгнута');
+    renderAbonent(id);
+  };
+
   $('#delAb').onclick = async () => {
     if (!confirm(`Удалить абонента ${ab.account} (${ab.fio}) вместе с историей начислений и платежей?`)) return;
     for (const c of charges) await DB.del('charges', c.id);
@@ -638,6 +813,7 @@ async function takePayment(ab, sum) {
   const alloc = Billing.allocatePayment(ab.debtByMonth, sum);
   ab.debtByMonth = alloc.debtByMonth;
   ab.balance = Billing.round2(ab.balance - sum);
+  if (ab.installment && ab.balance <= 0.005) delete ab.installment; // долг погашен — рассрочка исполнена
   await DB.put('abonents', ab);
   const ym = todayISO().slice(0, 7);
   if (!App.stats.byYm[ym]) App.stats.byYm[ym] = { accrued: {}, volume: {}, accruedTotal: 0, subsidyTotal: 0, paid: 0, count: 0 };
@@ -650,7 +826,7 @@ function printReceipt(ab, historyByYm, histMonths) {
   if (!ym) { toast('Нет закрытых начислений для квитанции'); return; }
   const rows = historyByYm[ym];
   const sum = rows.reduce((s, r) => s + r.sum, 0);
-  const pen = Billing.calcPenalty(ab.debtByMonth[ym] || 0, ym, new Date(), App.settings.keyRate);
+  const pen = ab.installment ? 0 : Billing.calcPenalty(ab.debtByMonth[ym] || 0, ym, new Date(), App.settings.keyRate);
   $('#printArea').innerHTML = `
     <h2>Квитанция на оплату ЖКУ — ${ymName(ym)}</h2>
     <p>РКЦ «Кедровый» · Лицевой счёт: <b>${esc(ab.account)}</b><br>
@@ -851,7 +1027,7 @@ async function exportReceipts(ym) {
     const agg = byAid.get(ab.id);
     if (!agg) continue;
     const debt = Math.max(0, ab.balance);
-    const pen = Billing.calcPenaltyTotal(ab.debtByMonth, now, App.settings.keyRate);
+    const pen = penaltyOf(ab, now);
     rows.push([
       ab.account, ab.fio, ab.address, ab.area, ab.residents,
       ...svcCols.map(k => agg[k] || 0),
@@ -995,6 +1171,81 @@ async function renderPayments() {
   };
 }
 
+/* ---------- отчёты: улицы и дома ---------- */
+async function renderReports() {
+  const ym = lastClosed();
+  const now = new Date();
+  const charges = ym ? await DB.byIndex('charges', 'ym', ym) : [];
+  const accruedByAid = new Map();
+  for (const c of charges) accruedByAid.set(c.aid, Billing.round2((accruedByAid.get(c.aid) || 0) + c.sum));
+
+  const mk = () => ({ accounts: 0, accrued: 0, debt: 0, penalty: 0, debtors: 0 });
+  const add = (agg, ab) => {
+    agg.accounts++;
+    agg.accrued = Billing.round2(agg.accrued + (accruedByAid.get(ab.id) || 0));
+    if (ab.balance > 0.005) { agg.debt = Billing.round2(agg.debt + ab.balance); agg.debtors++; }
+    agg.penalty = Billing.round2(agg.penalty + penaltyOf(ab, now));
+  };
+
+  const streets = new Map();
+  for (const ab of App.abonents) {
+    let st = streets.get(ab.street);
+    if (!st) streets.set(ab.street, st = { ...mk(), houses: new Map() });
+    add(st, ab);
+    let h = st.houses.get(ab.house);
+    if (!h) st.houses.set(ab.house, h = mk());
+    add(h, ab);
+  }
+  const sorted = [...streets.entries()].sort((a, b) => b[1].debt - a[1].debt);
+
+  const cells = a => `
+    <td class="num">${a.accounts.toLocaleString('ru-RU')}</td>
+    <td class="num">${fmtMoney(a.accrued)}</td>
+    <td class="num ${a.debt > 0 ? 'money-neg' : ''}">${fmtMoney(a.debt)}</td>
+    <td class="num">${a.debtors.toLocaleString('ru-RU')}</td>
+    <td class="num ${a.penalty > 0 ? 'money-neg' : ''}">${fmtMoney(a.penalty)}</td>`;
+
+  $('#view').innerHTML = `
+    <div class="page-head">
+      <div><h1>Отчёт по улицам и домам</h1>
+        <div class="sub">Начислено за ${ym ? ymName(ym) : '—'} · долги и пени на сегодня · улицы отсортированы по долгу</div></div>
+      <button class="btn secondary" id="reportXlsx">⬇ Выгрузить в Excel</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Улица / дом</th><th class="num">Счетов</th><th class="num">Начислено, ₽</th>
+          <th class="num">Долг, ₽</th><th class="num">Должников</th><th class="num">Пени, ₽</th></tr></thead>
+        <tbody>
+          ${sorted.map(([street, st], si) => `
+            <tr class="click street-row" data-si="${si}">
+              <td><b>${esc(street)}</b> <span class="muted small">· ${st.houses.size} дом.</span></td>${cells(st)}
+            </tr>
+            ${[...st.houses.entries()].sort((a, b) => a[0] - b[0]).map(([house, h]) => `
+              <tr class="house-row" data-si="${si}" hidden>
+                <td style="padding-left:28px" class="muted">д. ${house}</td>${cells(h)}
+              </tr>`).join('')}`).join('') || '<tr><td colspan="6" class="empty">Нет данных</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+    <p class="note-law">Нажмите на улицу, чтобы раскрыть дома. Пени рассчитаны на сегодня по ставке ${App.settings.keyRate}% (абоненты с рассрочкой — без пеней).</p>`;
+
+  document.querySelectorAll('.street-row').forEach(tr => tr.addEventListener('click', () => {
+    document.querySelectorAll(`.house-row[data-si="${tr.dataset.si}"]`).forEach(r => r.hidden = !r.hidden);
+  }));
+
+  $('#reportXlsx').onclick = () => {
+    const rows = [['Улица', 'Дом', 'Лицевых счетов', `Начислено за ${ym ? ymName(ym) : '—'}, ₽`, 'Долг, ₽', 'Должников', 'Пени, ₽']];
+    for (const [street, st] of sorted) {
+      rows.push([street, 'вся улица', st.accounts, st.accrued, st.debt, st.debtors, st.penalty]);
+      for (const [house, h] of [...st.houses.entries()].sort((a, b) => a[0] - b[0]))
+        rows.push([street, 'д. ' + house, h.accounts, h.accrued, h.debt, h.debtors, h.penalty]);
+    }
+    XLSXMini.download(`otchet-ulicy-${ym || 'tekushchij'}.xlsx`, 'По улицам и домам', rows,
+      { headerRows: 1, widths: [26, 12, 14, 16, 14, 12, 14], moneyCols: new Set([3, 4, 6]) });
+    toast('Отчёт выгружен в Excel');
+  };
+}
+
 /* ---------- администрирование ---------- */
 function renderAdmin() {
   const en = App.settings.enabledServices;
@@ -1131,6 +1382,24 @@ function renderSettings() {
       <div class="toolbar" style="margin-top:14px"><button class="btn">Сохранить настройки</button></div>
     </form>
 
+    <h2 class="eyebrow">Безопасность</h2>
+    <form class="card pad" id="secForm">
+      <div class="fld-row">
+        ${App.security && App.security.hash ? '<label class="fld">Текущий пароль<input type="password" name="oldPw" autocomplete="current-password"></label>' : ''}
+        <label class="fld">${App.security && App.security.hash ? 'Новый пароль (пусто — оставить прежний)' : 'Пароль на вход'}<input type="password" name="newPw" autocomplete="new-password"></label>
+        <label class="fld">Повторите пароль<input type="password" name="newPw2" autocomplete="new-password"></label>
+      </div>
+      <label style="display:flex; align-items:center; gap:8px; margin-top:12px; cursor:pointer">
+        <input type="checkbox" name="adminLock" ${App.security && App.security.adminLock ? 'checked' : ''}>
+        Дополнительно запрашивать пароль при входе в раздел «Админ»
+      </label>
+      <div class="toolbar" style="margin-top:12px"><button class="btn secondary">Сохранить</button>
+        ${App.security && App.security.hash ? '<button type="button" class="btn danger sm" id="dropPw">Убрать пароль</button>' : ''}
+        <span class="muted small" id="secMsg">${App.security && App.security.hash ? 'Пароль установлен.' : 'Пароль не установлен — вход свободный.'}</span></div>
+      <p class="note-law">Пароль защищает интерфейс на этом устройстве (хранится в виде хэша).
+        Это не шифрование данных: для строгой защиты используйте отдельный профиль браузера или устройство.</p>
+    </form>
+
     <h2 class="eyebrow">Данные</h2>
     <div class="card pad toolbar">
       <button class="btn secondary" id="exportBtn">Экспорт базы (JSON)</button>
@@ -1158,11 +1427,56 @@ function renderSettings() {
     toast('Настройки сохранены');
   };
 
+  $('#secForm').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const cur = App.security && App.security.hash;
+    if (cur && await sha256(String(f.get('oldPw') || '')) !== cur) {
+      $('#secMsg').textContent = 'Текущий пароль неверный.';
+      return;
+    }
+    const p1 = String(f.get('newPw') || ''), p2 = String(f.get('newPw2') || '');
+    const adminLock = f.get('adminLock') === 'on';
+    if (!p1 && cur) { // пароль не меняется — обновляем только настройку админ-замка
+      App.security.adminLock = adminLock;
+      await DB.kvSet('security', App.security);
+      if (!adminLock) sessionStorage.setItem('rkc-admin', cur);
+      toast('Настройки безопасности сохранены');
+      renderSettings();
+      return;
+    }
+    if (!p1) {
+      $('#secMsg').textContent = 'Введите пароль, чтобы включить защиту.';
+      return;
+    }
+    if (p1.length < 4) { $('#secMsg').textContent = 'Пароль слишком короткий (минимум 4 символа).'; return; }
+    if (p1 !== p2) { $('#secMsg').textContent = 'Пароли не совпадают.'; return; }
+    const hash = await sha256(p1);
+    App.security = { hash, adminLock };
+    await DB.kvSet('security', App.security);
+    sessionStorage.setItem('rkc-auth', hash);
+    sessionStorage.setItem('rkc-admin', hash);
+    toast('Пароль установлен');
+    renderSettings();
+  };
+
+  const dropPw = $('#dropPw');
+  if (dropPw) dropPw.onclick = async () => {
+    const oldPw = prompt('Для удаления пароля введите текущий пароль:');
+    if (oldPw === null) return;
+    if (await sha256(oldPw) !== App.security.hash) { toast('Пароль неверный'); return; }
+    App.security = null;
+    await DB.kvSet('security', null);
+    sessionStorage.removeItem('rkc-auth'); sessionStorage.removeItem('rkc-admin');
+    toast('Пароль удалён');
+    renderSettings();
+  };
+
   $('#exportBtn').onclick = async () => {
     toast('Готовим экспорт…');
     const dump = {
       version: 2, exportedAt: new Date().toISOString(),
-      settings: App.settings, closedMonths: App.closedMonths, stats: App.stats, tariffPlans: App.plans,
+      settings: App.settings, closedMonths: App.closedMonths, stats: App.stats, tariffPlans: App.plans, security: App.security,
       abonents: await DB.getAll('abonents'),
       readings: await DB.getAll('readings'),
       charges: await DB.getAll('charges'),
@@ -1192,6 +1506,7 @@ function renderSettings() {
       await DB.kvSet('closedMonths', dump.closedMonths || []);
       await DB.kvSet('stats', dump.stats || { byYm: {} });
       await DB.kvSet('tariffPlans', dump.tariffPlans || []);
+      await DB.kvSet('security', dump.security || null);
       toast('База импортирована');
       location.reload();
     } catch (err) {
