@@ -159,9 +159,28 @@ function allocatePayment(debtByMonth, sum) {
   return { debtByMonth: result, leftover: round2(rest) };
 }
 
+/* График рассрочки долга: равные доли, остаток копеек — в последний платёж.
+   Пока соглашение о рассрочке действует, пени на реструктуризированный долг
+   не начисляются (соглашение сторон, по аналогии с п. 72 ПП №354). */
+function buildInstallment(total, months, startYm) {
+  const part = Math.floor((total / months) * 100) / 100;
+  const schedule = [];
+  let ym = startYm, accrued = 0;
+  for (let i = 0; i < months; i++) {
+    const sum = i === months - 1 ? round2(total - accrued) : part;
+    schedule.push({ ym, sum });
+    accrued = round2(accrued + sum);
+    let [y, m] = ym.split('-').map(Number);
+    m++; if (m > 12) { m = 1; y++; }
+    ym = `${y}-${String(m).padStart(2, '0')}`;
+  }
+  return schedule;
+}
+
 const Billing = {
   SERVICES, METERED, DEFAULT_SETTINGS, round2, round3,
   meterVolume, calcCharges, calcSubsidy, dueDate, calcPenalty, calcPenaltyTotal, allocatePayment,
+  buildInstallment,
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Billing;

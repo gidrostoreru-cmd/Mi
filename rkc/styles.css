@@ -218,7 +218,9 @@ dialog.modal::backdrop{background:rgba(10,14,18,.5); backdrop-filter:blur(2px)}
 @media print{
   body > *{display:none !important}
   #printArea{display:block !important; color:#000; background:#fff}
-  #printArea h2{margin:0 0 4px}
+  #printArea .notice{page-break-after:always}
+  #printArea .notice:last-child{page-break-after:auto}
+  #printArea h2{margin:0 0 4px; font-size:17px}
   #printArea table{width:100%; border-collapse:collapse; font-size:13px; margin-top:10px}
   #printArea th,#printArea td{border:1px solid #999; padding:5px 8px; text-align:left}
   #printArea td.num,#printArea th.num{text-align:right}
