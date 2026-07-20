@@ -9,6 +9,7 @@ const App = {
   byId: new Map(),
   closedMonths: [],
   stats: { byYm: {} },
+  plans: [],             // тарифные планы (кроме базового)
   ready: false,
 };
 
@@ -29,7 +30,15 @@ const ymShort = ym => { const [y, m] = ym.split('-').map(Number); return MONTHS_
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const nextYm = ym => { let [y, m] = ym.split('-').map(Number); m++; if (m > 12) { m = 1; y++; } return `${y}-${String(m).padStart(2, '0')}`; };
 const svcByKey = key => Billing.SERVICES.find(s => s.key === key);
-const SVC_COLORS = { cold: 'var(--svc-cold)', hot: 'var(--svc-hot)', sewer: 'var(--svc-sewer)', heat: 'var(--svc-heat)', gas: 'var(--svc-gas)' };
+const SVC_COLORS = { cold: 'var(--svc-cold)', hot: 'var(--svc-hot)', sewer: 'var(--svc-sewer)', heat: 'var(--svc-heat)', gas: 'var(--svc-gas)', elec: 'var(--svc-elec)', tko: 'var(--svc-tko)' };
+const enabledServices = () => Billing.SERVICES.filter(s => !App.settings.enabledServices || App.settings.enabledServices[s.key] !== false);
+
+/* Эффективные настройки абонента: тарифный план поверх базовых тарифов. */
+const planById = id => App.plans.find(p => p.id === id);
+function effSettings(ab) {
+  const p = ab.planId && planById(ab.planId);
+  return p ? { ...App.settings, tariffs: { ...App.settings.tariffs, ...p.tariffs } } : App.settings;
+}
 
 function toast(msg) {
   const t = $('#toast');
@@ -61,15 +70,29 @@ function totals() {
 }
 
 /* ---------- инициализация ---------- */
+/* Дополнение баз, созданных прошлыми версиями: новые услуги и поля. */
+function migrate() {
+  const d = Billing.DEFAULT_SETTINGS, s = App.settings;
+  s.tariffs = { ...d.tariffs, ...s.tariffs };
+  s.norms = { ...d.norms, ...s.norms };
+  s.subsidy = { ...d.subsidy, ...s.subsidy };
+  if (!s.enabledServices) s.enabledServices = { ...d.enabledServices };
+  for (const ab of App.abonents) {
+    if (!ab.meters.elec) ab.meters.elec = { has: false, can: false };
+  }
+}
+
 async function init() {
   await DB.open();
   App.settings = await DB.kvGet('settings', null);
   if (!App.settings) { renderWelcome(); return; }
   App.closedMonths = await DB.kvGet('closedMonths', []);
   App.stats = await DB.kvGet('stats', { byYm: {} });
+  App.plans = await DB.kvGet('tariffPlans', []);
   App.abonents = await DB.getAll('abonents');
   App.abonents.sort((a, b) => a.id - b.id);
   App.byId = new Map(App.abonents.map(a => [a.id, a]));
+  migrate();
   App.ready = true;
   $('#topbar').hidden = false;
   render();
@@ -82,8 +105,9 @@ function renderWelcome() {
       <div class="mark">₽</div>
       <h1>РКЦ «Кедровый»</h1>
       <p>Расчётная система ЖКХ для посёлка: холодная и горячая вода, водоотведение,
-         отопление и газ. Начисления по ПП №354, пени по ст. 155 ЖК РФ, субсидии
-         по ст. 159 ЖК РФ. Все данные хранятся в вашем браузере.</p>
+         отопление, газ, электроэнергия и вывоз ТКО. Начисления по ПП №354, пени
+         по ст. 155 ЖК РФ, субсидии по ст. 159 ЖК РФ, тарифные планы.
+         Все данные хранятся в вашем браузере.</p>
       <div class="btn-row">
         <button class="btn" id="seedBig">Создать демо-базу: 10 000 абонентов</button>
         <button class="btn secondary" id="seedEmpty">Начать с пустой базы</button>
@@ -136,6 +160,7 @@ function render() {
   if (route === 'service') return renderService(parts[1]);
   if (route === 'billing') return renderBilling();
   if (route === 'payments') return renderPayments();
+  if (route === 'admin') return renderAdmin();
   if (route === 'settings') return renderSettings();
   renderDash();
 }
@@ -147,7 +172,7 @@ function renderDash() {
   const st = lc ? App.stats.byYm[lc] : null;
   const period = currentPeriod();
 
-  const svcCards = Billing.SERVICES.map(s => {
+  const svcCards = enabledServices().map(s => {
     const sum = st ? st.accrued[s.key] : 0;
     const vol = st ? st.volume[s.key] : 0;
     return `
@@ -360,6 +385,7 @@ function showNewAbonentDialog() {
         <label class="fld">ИПУ холодной воды<select name="mcold"><option value="1">Установлен</option><option value="0">Нет</option></select></label>
         <label class="fld">ИПУ горячей воды<select name="mhot"><option value="1">Установлен</option><option value="0">Нет</option></select></label>
         <label class="fld">ИПУ газа<select name="mgas"><option value="1">Установлен</option><option value="0">Нет</option></select></label>
+        <label class="fld">ИПУ электроэнергии<select name="melec"><option value="1">Установлен</option><option value="0">Нет</option></select></label>
       </div>
       <div class="toolbar" style="justify-content:flex-end; margin-top:6px">
         <button class="btn secondary" value="cancel" formnovalidate>Отмена</button>
@@ -384,8 +410,9 @@ function showNewAbonentDialog() {
           cold: { has: f.get('mcold') === '1', can: true },
           hot: { has: f.get('mhot') === '1', can: true },
           gas: { has: f.get('mgas') === '1', can: true },
+          elec: { has: f.get('melec') === '1', can: true },
         },
-        balance: 0, debtByMonth: {}, search: '',
+        balance: 0, debtByMonth: {}, search: '', planId: null,
       };
       ab.search = (ab.account + ' ' + ab.fio + ' ' + ab.address).toLowerCase();
       await DB.put('abonents', ab);
@@ -433,8 +460,8 @@ async function renderAbonent(id) {
       <td class="num">${days}</td><td class="num ${pen > 0 ? 'money-neg' : ''}">${fmtMoney(pen)} ₽</td></tr>`;
   }).join('');
 
-  // превью субсидии за следующий период
-  const previewRows = Billing.calcCharges(ab, curReadings, App.settings);
+  // превью субсидии за следующий период (по тарифному плану абонента)
+  const previewRows = Billing.calcCharges(ab, curReadings, effSettings(ab));
   const previewSum = previewRows.reduce((s, r) => s + r.sum, 0);
   const previewSubsidy = Billing.calcSubsidy(ab, previewSum, App.settings);
 
@@ -486,7 +513,7 @@ async function renderAbonent(id) {
       <section class="card pad">
         <h2 class="eyebrow">Показания за ${ymName(period)}</h2>
         <form id="readingsForm" class="grid">
-          ${meterInput('cold')}${meterInput('hot')}${meterInput('gas')}
+          ${meterInput('cold')}${meterInput('hot')}${meterInput('gas')}${meterInput('elec')}
           <button class="btn" style="justify-self:start">Сохранить показания</button>
         </form>
         <p class="note-law">Если показания не переданы до закрытия периода, начисление выполняется по нормативу (п. 42 ПП №354).</p>
@@ -500,10 +527,14 @@ async function renderAbonent(id) {
         </form>
         <p class="note-law">Платёж разносится на самые старые долги (FIFO). Переплата хранится как аванс.</p>
 
-        <h2 class="eyebrow">Субсидия (ст. 159 ЖК РФ)</h2>
+        <h2 class="eyebrow">Субсидия (ст. 159 ЖК РФ) и тарифный план</h2>
         <form id="subsidyForm" class="fld-row">
           <label class="fld">Доход семьи, ₽/мес<input type="number" min="0" step="100" name="familyIncome" value="${ab.familyIncome || 0}"></label>
           <label class="fld">Субсидия<select name="subsidyOn"><option value="0"${ab.subsidyOn ? '' : ' selected'}>не назначена</option><option value="1"${ab.subsidyOn ? ' selected' : ''}>назначена</option></select></label>
+          <label class="fld">Тарифный план<select name="planId">
+            <option value="">Базовый</option>
+            ${App.plans.map(p => `<option value="${esc(p.id)}"${ab.planId === p.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}
+          </select></label>
           <button class="btn secondary">Сохранить</button>
         </form>
         <p class="note-law" id="subsidyPreview"></p>
@@ -556,7 +587,7 @@ async function renderAbonent(id) {
     e.preventDefault();
     const f = new FormData(e.target);
     const rec = { aid: id, ym: period };
-    for (const key of ['cold', 'hot', 'gas']) {
+    for (const key of Object.keys(Billing.METERED)) {
       if (!ab.meters[key].has) continue;
       const curr = Number(f.get('r_' + key));
       if (!curr) continue;
@@ -581,8 +612,9 @@ async function renderAbonent(id) {
     const f = new FormData(e.target);
     ab.familyIncome = Number(f.get('familyIncome')) || 0;
     ab.subsidyOn = f.get('subsidyOn') === '1';
+    ab.planId = f.get('planId') || null;
     await DB.put('abonents', ab);
-    toast('Параметры субсидии сохранены');
+    toast('Параметры абонента сохранены');
     renderAbonent(id);
   };
 
@@ -655,8 +687,10 @@ async function renderService(key) {
     cold: ['coldPerPerson', 'Норматив, м³/чел·мес'],
     hot: ['hotPerPerson', 'Норматив, м³/чел·мес'],
     gas: ['gasPerPerson', 'Норматив, м³/чел·мес'],
+    elec: ['elecPerPerson', 'Норматив, кВт·ч/чел·мес'],
     heat: ['heatPerM2', 'Норматив, Гкал/м²·мес'],
     sewer: [null, null],
+    tko: [null, null],
   }[key];
 
   $('#view').innerHTML = `
@@ -679,7 +713,7 @@ async function renderService(key) {
       <label class="fld">Тариф, ₽/${svc.unit}<input type="number" step="0.01" min="0" name="tariff" value="${App.settings.tariffs[key]}"></label>
       ${normField[0] ? `<label class="fld">${normField[1]}<input type="number" step="0.001" min="0" name="norm" value="${App.settings.norms[normField[0]]}"></label>` : ''}
       <button class="btn">Сохранить</button>
-      <p class="note-law" style="grid-column:1/-1; margin:0">${key === 'sewer' ? 'Объём водоотведения равен сумме объёмов холодной и горячей воды (п. 42 ПП №354), отдельный норматив не применяется.' : 'Новый тариф применяется к следующим начислениям; закрытые периоды не пересчитываются.'}</p>
+      <p class="note-law" style="grid-column:1/-1; margin:0">${key === 'sewer' ? 'Объём водоотведения равен сумме объёмов холодной и горячей воды (п. 42 ПП №354), отдельный норматив не применяется.' : key === 'tko' ? 'Вывоз ТКО начисляется по количеству проживающих: тариф × человек.' : 'Новый тариф применяется к следующим начислениям; закрытые периоды не пересчитываются.'}</p>
     </form>
 
     <h2 class="eyebrow">Начисления за период</h2>
@@ -788,7 +822,9 @@ async function closePeriod(ym) {
   if (!confirm(`Сформировать начисления за ${ymName(ym)} по ${App.abonents.length.toLocaleString('ru-RU')} лицевым счетам?`)) return;
   $('#closeBtn').disabled = true;
   $('#closeProgress').hidden = false;
-  const bar = $('#closeBar'), msg = $('#closeMsg');
+  // прогресс обновляем только пока элементы на экране — уход со страницы не прерывает закрытие
+  const setBar = w => { const el = $('#closeBar'); if (el) el.style.width = w; };
+  const setMsg = t => { const el = $('#closeMsg'); if (el) el.textContent = t; };
 
   // показания за период — одним чтением
   const allReadings = await DB.getAll('readings');
@@ -800,7 +836,7 @@ async function closePeriod(ym) {
 
   const chargeRows = [];
   for (const ab of App.abonents) {
-    const rows = Billing.calcCharges(ab, readingsByAid.get(ab.id) || null, App.settings);
+    const rows = Billing.calcCharges(ab, readingsByAid.get(ab.id) || null, effSettings(ab));
     let monthSum = 0;
     for (const r of rows) {
       chargeRows.push({ aid: ab.id, ym, ...r });
@@ -828,14 +864,14 @@ async function closePeriod(ym) {
     }
   }
 
-  msg.textContent = 'Записываем начисления…';
+  setMsg('Записываем начисления…');
   await DB.bulkPut('charges', chargeRows, 4000, (done, total) => {
-    bar.style.width = Math.round(done / total * 70) + '%';
-    msg.textContent = `Начисления: ${done.toLocaleString('ru-RU')} из ${total.toLocaleString('ru-RU')}`;
+    setBar(Math.round(done / total * 70) + '%');
+    setMsg(`Начисления: ${done.toLocaleString('ru-RU')} из ${total.toLocaleString('ru-RU')}`);
   });
-  msg.textContent = 'Обновляем лицевые счета…';
+  setMsg('Обновляем лицевые счета…');
   await DB.bulkPut('abonents', App.abonents, 4000, (done, total) => {
-    bar.style.width = 70 + Math.round(done / total * 30) + '%';
+    setBar(70 + Math.round(done / total * 30) + '%');
   });
 
   App.stats.byYm[ym] = st;
@@ -843,7 +879,7 @@ async function closePeriod(ym) {
   await DB.kvSet('stats', App.stats);
   await DB.kvSet('closedMonths', App.closedMonths);
   toast(`Период ${ymName(ym)} закрыт: начислено ${fmtCompact(st.accruedTotal)}`);
-  renderBilling();
+  if ((location.hash || '#/').startsWith('#/billing')) renderBilling();
 }
 
 /* ---------- платежи ---------- */
@@ -909,6 +945,110 @@ async function renderPayments() {
   };
 }
 
+/* ---------- администрирование ---------- */
+function renderAdmin() {
+  const en = App.settings.enabledServices;
+  const planUsers = id => App.abonents.filter(a => a.planId === id).length;
+  const baseUsers = App.abonents.filter(a => !a.planId || !planById(a.planId)).length;
+
+  const planCard = (p, isBase) => `
+    <form class="card pad plan-form" data-plan="${isBase ? '' : esc(p.id)}">
+      <div class="toolbar" style="margin-bottom:10px">
+        ${isBase
+          ? `<b>Базовый план</b><span class="badge plain">по умолчанию</span>`
+          : `<input type="text" name="name" value="${esc(p.name)}" required style="font-weight:700; max-width:240px">`}
+        <span class="badge sub num">${isBase ? baseUsers.toLocaleString('ru-RU') : planUsers(p.id).toLocaleString('ru-RU')} абонентов</span>
+        <span class="spacer"></span>
+        <button class="btn sm">Сохранить</button>
+        ${!isBase ? `<button type="button" class="btn danger sm" data-del="${esc(p.id)}" ${planUsers(p.id) ? 'disabled title="План назначен абонентам"' : ''}>Удалить</button>` : ''}
+      </div>
+      <div class="fld-row">
+        ${Billing.SERVICES.map(s => `<label class="fld">${s.name}, ₽/${s.unit}
+          <input type="number" step="0.01" min="0" name="t_${s.key}" value="${(isBase ? App.settings.tariffs : p.tariffs)[s.key] ?? App.settings.tariffs[s.key]}"></label>`).join('')}
+      </div>
+    </form>`;
+
+  $('#view').innerHTML = `
+    <div class="page-head"><div><h1>Администрирование</h1>
+      <div class="sub">Действующие услуги и тарифные планы посёлка</div></div></div>
+
+    <h2 class="eyebrow">Действующие услуги</h2>
+    <form class="card pad" id="svcToggles">
+      <div class="fld-row" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">
+        ${Billing.SERVICES.map(s => `
+          <label style="display:flex; align-items:center; gap:9px; cursor:pointer">
+            <input type="checkbox" name="en_${s.key}" ${!en || en[s.key] !== false ? 'checked' : ''}>
+            <span class="dot" style="background:${SVC_COLORS[s.key]}"></span>${s.name}
+          </label>`).join('')}
+      </div>
+      <div class="toolbar" style="margin-top:14px"><button class="btn">Сохранить услуги</button></div>
+      <p class="note-law">Отключённая услуга не попадает в новые начисления и скрывается с главной страницы.
+        Уже закрытые периоды не пересчитываются.</p>
+    </form>
+
+    <h2 class="eyebrow">Тарифные планы</h2>
+    <p class="muted small" style="max-width:74ch; margin-top:-4px">Базовый план действует для всех абонентов по умолчанию.
+      Дополнительные планы (например, льготный или коммерческий) подключаются конкретному абоненту в его карточке —
+      начисления считаются по тарифам его плана.</p>
+    <div class="grid">
+      ${planCard(null, true)}
+      ${App.plans.map(p => planCard(p, false)).join('')}
+    </div>
+    <div class="toolbar" style="margin-top:14px">
+      <button class="btn secondary" id="addPlan">+ Новый тарифный план</button>
+    </div>`;
+
+  $('#svcToggles').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    App.settings.enabledServices = Object.fromEntries(Billing.SERVICES.map(s => [s.key, f.get('en_' + s.key) === 'on']));
+    if (!Object.values(App.settings.enabledServices).some(Boolean)) { toast('Нельзя отключить все услуги сразу'); return; }
+    await DB.kvSet('settings', App.settings);
+    toast('Список действующих услуг сохранён');
+    renderAdmin();
+  };
+
+  document.querySelectorAll('.plan-form').forEach(form => {
+    form.onsubmit = async e => {
+      e.preventDefault();
+      const f = new FormData(form);
+      const tariffs = Object.fromEntries(Billing.SERVICES.map(s => [s.key, Number(f.get('t_' + s.key)) || 0]));
+      const pid = form.dataset.plan;
+      if (!pid) {
+        App.settings.tariffs = tariffs;
+        await DB.kvSet('settings', App.settings);
+        toast('Базовые тарифы сохранены');
+      } else {
+        const p = planById(pid);
+        p.name = String(f.get('name') || p.name).trim() || p.name;
+        p.tariffs = tariffs;
+        await DB.kvSet('tariffPlans', App.plans);
+        toast(`План «${p.name}» сохранён`);
+      }
+      renderAdmin();
+    };
+  });
+
+  document.querySelectorAll('[data-del]').forEach(btn => btn.onclick = async () => {
+    const p = planById(btn.dataset.del);
+    if (!p || !confirm(`Удалить тарифный план «${p.name}»?`)) return;
+    App.plans = App.plans.filter(x => x.id !== p.id);
+    await DB.kvSet('tariffPlans', App.plans);
+    toast('План удалён');
+    renderAdmin();
+  });
+
+  $('#addPlan').onclick = async () => {
+    const name = prompt('Название тарифного плана (например, «Льготный −30%»):', 'Новый план');
+    if (!name) return;
+    const id = 'plan-' + ((App.plans.reduce((m, p) => Math.max(m, Number(p.id.split('-')[1]) || 0), 0) || 0) + 1);
+    App.plans.push({ id, name: name.trim(), tariffs: { ...App.settings.tariffs } });
+    await DB.kvSet('tariffPlans', App.plans);
+    toast(`План «${name.trim()}» создан — задайте тарифы и сохраните`);
+    renderAdmin();
+  };
+}
+
 /* ---------- настройки ---------- */
 function renderSettings() {
   const s = App.settings;
@@ -917,16 +1057,13 @@ function renderSettings() {
       <div class="sub">Тарифы, нормативы, ставки и региональные стандарты</div></div></div>
 
     <form id="setForm">
-      <h2 class="eyebrow">Тарифы</h2>
-      <div class="card pad fld-row">
-        ${Billing.SERVICES.map(x => `<label class="fld">${x.name}, ₽/${x.unit}<input type="number" step="0.01" min="0" name="t_${x.key}" value="${s.tariffs[x.key]}"></label>`).join('')}
-      </div>
-
+      <p class="muted small">Тарифы, тарифные планы и состав действующих услуг настраиваются в разделе <a href="#/admin">Админ</a>.</p>
       <h2 class="eyebrow">Нормативы потребления (без ИПУ)</h2>
       <div class="card pad fld-row">
         <label class="fld">Холодная вода, м³/чел·мес<input type="number" step="0.001" min="0" name="n_cold" value="${s.norms.coldPerPerson}"></label>
         <label class="fld">Горячая вода, м³/чел·мес<input type="number" step="0.001" min="0" name="n_hot" value="${s.norms.hotPerPerson}"></label>
         <label class="fld">Газ, м³/чел·мес<input type="number" step="0.001" min="0" name="n_gas" value="${s.norms.gasPerPerson}"></label>
+        <label class="fld">Электроэнергия, кВт·ч/чел·мес<input type="number" step="1" min="0" name="n_elec" value="${s.norms.elecPerPerson}"></label>
         <label class="fld">Отопление, Гкал/м²·мес<input type="number" step="0.0001" min="0" name="n_heat" value="${s.norms.heatPerM2}"></label>
         <label class="fld">Повышающий коэффициент<input type="number" step="0.1" min="1" name="raising" value="${s.raisingCoef}"></label>
       </div>
@@ -957,10 +1094,10 @@ function renderSettings() {
   $('#setForm').onsubmit = async e => {
     e.preventDefault();
     const f = new FormData(e.target);
-    for (const x of Billing.SERVICES) s.tariffs[x.key] = Number(f.get('t_' + x.key)) || 0;
     s.norms.coldPerPerson = Number(f.get('n_cold')) || 0;
     s.norms.hotPerPerson = Number(f.get('n_hot')) || 0;
     s.norms.gasPerPerson = Number(f.get('n_gas')) || 0;
+    s.norms.elecPerPerson = Number(f.get('n_elec')) || 0;
     s.norms.heatPerM2 = Number(f.get('n_heat')) || 0;
     s.raisingCoef = Number(f.get('raising')) || 1;
     s.keyRate = Number(f.get('keyRate')) || 0;
@@ -974,8 +1111,8 @@ function renderSettings() {
   $('#exportBtn').onclick = async () => {
     toast('Готовим экспорт…');
     const dump = {
-      version: 1, exportedAt: new Date().toISOString(),
-      settings: App.settings, closedMonths: App.closedMonths, stats: App.stats,
+      version: 2, exportedAt: new Date().toISOString(),
+      settings: App.settings, closedMonths: App.closedMonths, stats: App.stats, tariffPlans: App.plans,
       abonents: await DB.getAll('abonents'),
       readings: await DB.getAll('readings'),
       charges: await DB.getAll('charges'),
@@ -1004,6 +1141,7 @@ function renderSettings() {
       await DB.kvSet('settings', dump.settings);
       await DB.kvSet('closedMonths', dump.closedMonths || []);
       await DB.kvSet('stats', dump.stats || { byYm: {} });
+      await DB.kvSet('tariffPlans', dump.tariffPlans || []);
       toast('База импортирована');
       location.reload();
     } catch (err) {
