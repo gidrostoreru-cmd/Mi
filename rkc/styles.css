@@ -1,0 +1,229 @@
+/* РКЦ «Кедровый» — дизайн-токены и компоненты.
+   Прохладные серо-синие нейтрали, акцент — синий; цвета услуг — валидированная
+   категориальная палитра (фиксированный порядок, безопасна для дальтонизма). */
+
+:root{
+  color-scheme: light;
+  --bg:            #eef1f4;
+  --surface:       #fcfcfd;
+  --surface-2:     #f4f6f8;
+  --ink:           #18202a;
+  --ink-soft:      #5b6673;
+  --ink-mute:      #8b95a1;
+  --line:          #dbe1e8;
+  --accent:        #2a78d6;
+  --accent-ink:    #ffffff;
+  --accent-soft:   #e3eefb;
+  --good:          #0ca30c;
+  --warning:       #fab219;
+  --serious:       #ec835a;
+  --critical:      #d03b3b;
+  --good-soft:     #e2f4e2;
+  --critical-soft: #fbe7e7;
+  --warn-soft:     #fdf3dc;
+  --svc-cold:  #2a78d6;
+  --svc-hot:   #008300;
+  --svc-sewer: #e87ba4;
+  --svc-heat:  #eda100;
+  --svc-gas:   #1baf7a;
+  --shadow: 0 1px 2px rgba(24,32,42,.06), 0 8px 24px rgba(24,32,42,.05);
+  --radius: 12px;
+}
+@media (prefers-color-scheme: dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme: dark;
+    --bg:#12151a; --surface:#1c2127; --surface-2:#232932;
+    --ink:#e8ebef; --ink-soft:#9aa4af; --ink-mute:#6e7883; --line:#303842;
+    --accent:#3987e5; --accent-ink:#0b1826; --accent-soft:#1e3352;
+    --good-soft:#173d17; --critical-soft:#43201f; --warn-soft:#3d3212;
+    --svc-cold:#3987e5; --svc-hot:#008300; --svc-sewer:#d55181; --svc-heat:#c98500; --svc-gas:#199e70;
+    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 10px 28px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#12151a; --surface:#1c2127; --surface-2:#232932;
+  --ink:#e8ebef; --ink-soft:#9aa4af; --ink-mute:#6e7883; --line:#303842;
+  --accent:#3987e5; --accent-ink:#0b1826; --accent-soft:#1e3352;
+  --good-soft:#173d17; --critical-soft:#43201f; --warn-soft:#3d3212;
+  --svc-cold:#3987e5; --svc-hot:#008300; --svc-sewer:#d55181; --svc-heat:#c98500; --svc-gas:#199e70;
+  --shadow: 0 1px 2px rgba(0,0,0,.5), 0 10px 28px rgba(0,0,0,.4);
+}
+
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font:400 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--accent); text-decoration:none}
+a:hover{text-decoration:underline}
+:focus-visible{outline:3px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset:2px; border-radius:6px}
+@media (prefers-reduced-motion: reduce){ *{transition:none !important; animation:none !important} }
+
+.num{font-variant-numeric:tabular-nums}
+
+/* ---------- каркас ---------- */
+.topbar{
+  position:sticky; top:0; z-index:50;
+  background:color-mix(in srgb, var(--surface) 86%, transparent);
+  backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line);
+}
+.topbar-in{max-width:1180px; margin:0 auto; padding:0 20px; display:flex; align-items:center; gap:18px; min-height:56px; flex-wrap:wrap}
+.brand{display:flex; align-items:center; gap:10px; font-weight:800; font-size:16px; letter-spacing:-.01em; color:var(--ink); white-space:nowrap}
+.brand .mark{
+  width:28px; height:28px; border-radius:8px; background:var(--accent); color:var(--accent-ink);
+  display:grid; place-items:center; font-size:14px; font-weight:800;
+}
+.brand small{font-weight:500; color:var(--ink-soft)}
+nav.main{display:flex; gap:2px; overflow-x:auto; scrollbar-width:none; flex:1}
+nav.main::-webkit-scrollbar{display:none}
+nav.main a{
+  padding:8px 12px; border-radius:9px; color:var(--ink-soft); font-weight:600; font-size:14px; white-space:nowrap;
+}
+nav.main a:hover{background:var(--surface-2); text-decoration:none; color:var(--ink)}
+nav.main a[aria-current="page"]{background:var(--accent-soft); color:var(--accent)}
+
+main{max-width:1180px; margin:0 auto; padding:24px 20px 64px}
+
+.page-head{display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; margin:4px 0 20px}
+h1{font-size:clamp(22px,4vw,30px); font-weight:800; letter-spacing:-.02em; margin:0; text-wrap:balance}
+.page-head .sub{color:var(--ink-soft); margin-top:4px; font-size:14px}
+h2.eyebrow{
+  font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.08em;
+  color:var(--ink-soft); margin:28px 0 10px;
+}
+h2.eyebrow:first-child{margin-top:0}
+
+/* ---------- карточки, KPI ---------- */
+.card{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow)}
+.card.pad{padding:18px}
+.grid{display:grid; gap:14px}
+.kpi-row{display:grid; gap:12px; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr))}
+.kpi{padding:14px 16px}
+.kpi .label{font-size:12px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-soft)}
+.kpi .value{font-size:24px; font-weight:800; letter-spacing:-.01em; margin-top:4px; font-variant-numeric:tabular-nums}
+.kpi .value small{font-size:14px; font-weight:600; color:var(--ink-soft)}
+.kpi .note{font-size:12px; color:var(--ink-mute); margin-top:2px}
+.kpi.crit .value{color:var(--critical)}
+.kpi.good .value{color:var(--good)}
+
+.svc-grid{display:grid; gap:12px; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr))}
+.svc-card{padding:14px 16px; cursor:pointer; transition:transform .12s ease, box-shadow .12s ease; display:block; color:var(--ink)}
+.svc-card:hover{transform:translateY(-2px); text-decoration:none}
+.svc-head{display:flex; align-items:center; gap:8px; font-weight:700}
+.dot{width:10px; height:10px; border-radius:3px; flex:none}
+.svc-meta{color:var(--ink-soft); font-size:13px; margin-top:2px}
+.svc-nums{display:flex; justify-content:space-between; gap:8px; margin-top:12px; font-size:13px; color:var(--ink-soft)}
+.svc-nums b{display:block; color:var(--ink); font-size:16px; font-variant-numeric:tabular-nums}
+
+/* ---------- таблицы ---------- */
+.table-scroll{overflow-x:auto; border-radius:var(--radius)}
+table{width:100%; border-collapse:collapse; font-size:14px}
+th,td{padding:9px 12px; text-align:left; border-bottom:1px solid var(--line); vertical-align:middle}
+th{font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-soft); white-space:nowrap;
+   position:sticky; top:0; background:var(--surface); z-index:1}
+td.num,th.num{text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums}
+tbody tr:last-child td{border-bottom:none}
+tbody tr.click{cursor:pointer}
+tbody tr.click:hover{background:var(--surface-2)}
+tr.total td{font-weight:800; background:var(--surface-2)}
+
+/* ---------- формы, кнопки ---------- */
+input,select,button{font:inherit; color:var(--ink)}
+input[type="text"],input[type="number"],input[type="search"],input[type="date"],input[type="month"],select{
+  background:var(--surface); border:1px solid var(--line); border-radius:9px; padding:8px 11px; min-width:0;
+}
+input:disabled{opacity:.5}
+label.fld{display:flex; flex-direction:column; gap:4px; font-size:13px; color:var(--ink-soft); font-weight:600; min-width:0}
+label.fld input, label.fld select{font-weight:500; font-variant-numeric:tabular-nums}
+.fld-row{display:grid; gap:12px; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); align-items:end}
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  background:var(--accent); color:var(--accent-ink); border:none; border-radius:10px;
+  padding:9px 16px; font-weight:700; cursor:pointer; white-space:nowrap;
+}
+.btn:hover{filter:brightness(1.06)}
+.btn:disabled{opacity:.5; cursor:default}
+.btn.secondary{background:var(--surface); color:var(--ink); border:1px solid var(--line)}
+.btn.danger{background:transparent; color:var(--critical); border:1px solid var(--critical)}
+.btn.sm{padding:6px 11px; font-size:13.5px; border-radius:8px}
+.toolbar{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+.toolbar input[type="search"]{flex:1; min-width:180px}
+.spacer{flex:1}
+
+/* ---------- бейджи, статусы ---------- */
+.badge{display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:700; border-radius:99px; padding:2.5px 9px; white-space:nowrap}
+.badge.debt{background:var(--critical-soft); color:var(--critical)}
+.badge.overdue{background:var(--warn-soft); color:#8a6200}
+:root[data-theme="dark"] .badge.overdue{color:var(--warning)}
+@media (prefers-color-scheme: dark){ :root:where(:not([data-theme="light"])) .badge.overdue{color:var(--warning)} }
+.badge.ok{background:var(--good-soft); color:var(--good)}
+.badge.sub{background:var(--accent-soft); color:var(--accent)}
+.badge.plain{background:var(--surface-2); color:var(--ink-soft)}
+
+/* ---------- пагинация ---------- */
+.pager{display:flex; align-items:center; gap:10px; justify-content:flex-end; padding:10px 4px; color:var(--ink-soft); font-size:13.5px}
+
+/* ---------- график ---------- */
+.chart-wrap{position:relative}
+.chart-legend{display:flex; gap:16px; font-size:13px; color:var(--ink-soft); padding:2px 4px 10px}
+.chart-legend span{display:inline-flex; align-items:center; gap:6px; font-weight:600}
+.chart-tip{
+  position:absolute; pointer-events:none; background:var(--ink); color:var(--bg);
+  font-size:12.5px; padding:7px 10px; border-radius:8px; opacity:0; transition:opacity .1s;
+  white-space:nowrap; z-index:5; font-variant-numeric:tabular-nums;
+}
+.chart svg{display:block; width:100%; height:auto}
+.chart .grid-line{stroke:var(--line); stroke-width:1}
+.chart text{fill:var(--ink-soft); font-size:11px; font-variant-numeric:tabular-nums}
+.chart .bar{rx:4}
+
+/* ---------- прочее ---------- */
+.muted{color:var(--ink-soft)}
+.small{font-size:13px}
+.money-neg{color:var(--critical)}
+.money-pos{color:var(--good)}
+.empty{padding:36px; text-align:center; color:var(--ink-mute)}
+.progress{height:8px; background:var(--surface-2); border-radius:99px; overflow:hidden}
+.progress > div{height:100%; background:var(--accent); border-radius:99px; transition:width .15s}
+.note-law{font-size:12.5px; color:var(--ink-mute); line-height:1.55; margin-top:10px}
+
+.toast{
+  position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(8px);
+  background:var(--ink); color:var(--bg); padding:10px 18px; border-radius:10px;
+  font-weight:600; font-size:14px; opacity:0; pointer-events:none; transition:all .2s; z-index:100;
+}
+.toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+
+dialog.modal{
+  border:1px solid var(--line); border-radius:14px; background:var(--surface); color:var(--ink);
+  padding:22px; max-width:520px; width:calc(100vw - 40px); box-shadow:var(--shadow);
+}
+dialog.modal::backdrop{background:rgba(10,14,18,.5); backdrop-filter:blur(2px)}
+
+/* welcome-экран */
+.welcome{max-width:660px; margin:8vh auto 0; text-align:center; padding:36px 26px}
+.welcome .mark{width:52px; height:52px; font-size:24px; border-radius:14px; margin:0 auto 16px; background:var(--accent); color:var(--accent-ink); display:grid; place-items:center; font-weight:800}
+.welcome h1{margin-bottom:8px}
+.welcome p{color:var(--ink-soft); max-width:52ch; margin:0 auto 22px}
+.welcome .btn-row{display:flex; gap:12px; justify-content:center; flex-wrap:wrap}
+
+/* печать квитанции */
+#printArea{display:none}
+@media print{
+  body > *{display:none !important}
+  #printArea{display:block !important; color:#000; background:#fff}
+  #printArea h2{margin:0 0 4px}
+  #printArea table{width:100%; border-collapse:collapse; font-size:13px; margin-top:10px}
+  #printArea th,#printArea td{border:1px solid #999; padding:5px 8px; text-align:left}
+  #printArea td.num,#printArea th.num{text-align:right}
+}
+
+@media (max-width: 640px){
+  main{padding:16px 12px 56px}
+  .kpi .value{font-size:20px}
+  th,td{padding:8px 8px}
+}
